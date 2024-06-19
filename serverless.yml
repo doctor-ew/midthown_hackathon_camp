@@ -1,0 +1,20 @@
+service: langchain-chatbot
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  environment:
+    OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+  timeout: 60 # Increase the timeout to 30 seconds
+
+functions:
+  chatbot:
+    handler: dist/handler.handler # Ensure this points to the compiled JavaScript file
+    events:
+      - http:
+          path: chatbot
+          method: post
+
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-offline # Add this line to include the plugin
