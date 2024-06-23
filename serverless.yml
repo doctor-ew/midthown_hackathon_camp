@@ -5,15 +5,33 @@ provider:
   runtime: nodejs20.x
   environment:
     OPENAI_API_KEY: ${env:OPENAI_API_KEY}
-  timeout: 60 # Increase the timeout to 60 seconds
-  stage: dev # Explicitly define the stage
+  timeout: 60
+  stage: dev
 
 functions:
   chatbot:
-    handler: dist/handler.handler
+    handler: dist/src/handler.handler
     events:
       - http:
           path: chatbot
+          method: post
+  translation:
+    handler: dist/src/handler.handler
+    events:
+      - http:
+          path: translation
+          method: post
+  personalAssistant:
+    handler: dist/src/handler.handler
+    events:
+      - http:
+          path: personalAssistant
+          method: post
+  sentimentAnalysis:
+    handler: dist/src/handler.handler
+    events:
+      - http:
+          path: sentimentAnalysis
           method: post
 
 plugins:
@@ -24,7 +42,7 @@ plugins:
 custom:
   customDomain:
     domainName: skippyts.doctorew.com
-    stage: ${opt:stage, self:provider.stage} # Reference the provider's stage value
+    stage: ${opt:stage, self:provider.stage}
     basePath: ""
     certificateName: "*.doctorew.com"
     createRoute53Record: true

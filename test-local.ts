@@ -1,4 +1,4 @@
-import { handler } from "./handler";
+import { handler } from "./src/handler";
 //import { config } from "dotenv";
 
 import * as dotenv from "dotenv";
