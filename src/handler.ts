@@ -99,17 +99,44 @@ async function getSentimentAnalysis(prompt: string): Promise<string> {
   return response.trim();
 }
 
+async function getFoxtrotCode(language: string): Promise<string> {
+  /*
+  const codePrompt = ChatPromptTemplate.fromTemplate(
+    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`
+  );
+  */
+  const codePrompt = ChatPromptTemplate.fromTemplate(
+    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`
+  );
+
+  const outputParser = new StringOutputParser();
+
+  const chain = codePrompt.pipe(openai).pipe(outputParser);
+
+  const stream = await chain.stream({
+    //question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`,
+    question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`,
+  });
+
+  let response = "";
+  for await (const chunk of stream) {
+    response += chunk;
+  }
+  return response.trim();
+}
+
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
-  console.log("|-o-| Received event:", event);
+  // console.log("|-o-| Received event:", event);
   try {
     const requestBody = JSON.parse(event.body || "{}");
     const userQuestion = requestBody.question || "Whats up, Doc?";
     const targetLanguage = requestBody.language || "Spanish";
+    const programmingLanguage = requestBody.programmingLanguage || "Python";
 
     let response;
-    console.log("|-oo-| Received event.path:", event.path);
+    // console.log("|-oo-| Received event.path:", event.path);
 
     switch (event.path) {
       case "/dev/chatbot":
@@ -127,6 +154,10 @@ export const handler = async (
       case "/dev/sentimentAnalysis":
       case "/sentimentAnalysis":
         response = await getSentimentAnalysis(userQuestion);
+        break;
+      case "/dev/foxtrot":
+      case "/foxtrot":
+        response = await getFoxtrotCode(programmingLanguage);
         break;
       default:
         response = "Unknown endpoint path.";

@@ -33,6 +33,12 @@ functions:
       - http:
           path: sentimentAnalysis
           method: post
+  foxtrot:
+    handler: dist/src/handler.handler
+    events:
+      - http:
+          path: foxtrot
+          method: post
 
 plugins:
   - serverless-dotenv-plugin
