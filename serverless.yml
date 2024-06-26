@@ -15,12 +15,14 @@ functions:
       - http:
           path: chatbot
           method: post
+          cors: true # <-- CORS!
   translation:
     handler: dist/src/handler.handler
     events:
       - http:
           path: translation
           method: post
+          cors: true # <-- CORS!
   personalAssistant:
     handler: dist/src/handler.handler
     events:
@@ -33,12 +35,14 @@ functions:
       - http:
           path: sentimentAnalysis
           method: post
+          cors: true # <-- CORS!
   foxtrot:
     handler: dist/src/handler.handler
     events:
       - http:
           path: foxtrot
           method: post
+          cors: true # <-- CORS!
 
 plugins:
   - serverless-dotenv-plugin

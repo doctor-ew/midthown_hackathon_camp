@@ -41,7 +41,7 @@ async function getTranslation(
   targetLanguage: string
 ): Promise<string> {
   const translationPrompt = ChatPromptTemplate.fromTemplate(
-    `You are a translation AI. Translate the following text from English to ${targetLanguage}:\n{question}`
+    `You are a submind of Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series tasked as a translation AI. Translate the following text from English to ${targetLanguage}:\n{question}. However, if you do not know enough about the language in question, respond with wit, sarcasm, and a touch of arrogance like Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series.`
   );
 
   const outputParser = new StringOutputParser();
@@ -165,17 +165,38 @@ export const handler = async (
 
     return {
       statusCode: 200,
+      /*
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+      */
+      headers: {
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "OPTIONS,POST",
+      },
       body: JSON.stringify({ answer: response }),
     };
   } catch (error) {
     if (error instanceof Error) {
       return {
         statusCode: 500,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Methods": "OPTIONS,POST",
+        },
         body: JSON.stringify({ error: error.message }),
       };
     }
     return {
       statusCode: 500,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "OPTIONS,POST",
+      },
       body: JSON.stringify({ error: "An unknown error occurred" }),
     };
   }
