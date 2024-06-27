@@ -3,6 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import * as dotenv from "dotenv";
+import personalities from "./config/personalityMatrix";
 
 dotenv.config();
 
@@ -16,11 +17,14 @@ const openai = new ChatOpenAI({
   },
 });
 
-async function getOpenAIResponse(prompt: string): Promise<string> {
-  const chatPrompt = ChatPromptTemplate.fromTemplate(
-    `You are Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series. Respond to the following question with wit, sarcasm, and a touch of arrogance:\n{question}`
-  );
+async function getOpenAIResponse(
+  prompt: string,
+  personality: string
+): Promise<string> {
+  const personalityTemplate =
+    personalities[personality] || personalities["skippy"];
 
+  const chatPrompt = ChatPromptTemplate.fromTemplate(personalityTemplate);
   const outputParser = new StringOutputParser();
 
   const chain = chatPrompt.pipe(openai).pipe(outputParser);
@@ -134,6 +138,7 @@ export const handler = async (
     const userQuestion = requestBody.question || "Whats up, Doc?";
     const targetLanguage = requestBody.language || "Spanish";
     const programmingLanguage = requestBody.programmingLanguage || "Python";
+    const personality = requestBody.personality || "skippy"; // Default to Skippy
 
     let response;
     // console.log("|-oo-| Received event.path:", event.path);
@@ -141,7 +146,7 @@ export const handler = async (
     switch (event.path) {
       case "/dev/chatbot":
       case "/chatbot":
-        response = await getOpenAIResponse(userQuestion);
+        response = await getOpenAIResponse(userQuestion, personality);
         break;
       case "/dev/translation":
       case "/translation":
