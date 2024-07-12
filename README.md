@@ -216,3 +216,12 @@ iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocola
 choco -v
 
 choco install nodejs-lts -y
+
+node -v
+npm -v
+
+npm install --save-dev @types/express @types/aws-lambda
+
+npm run build
+npm run dev
+
