@@ -37,6 +37,15 @@ async function getOpenAIResponse(
   for await (const chunk of stream) {
     response += chunk;
   }
+
+  let returnResponse = response.trim();
+
+  console.log(
+    `|-o-| Chat with: ${personality}! 
+    :: prompt: ${prompt}
+    || getOpenAIResponse: returnResponse: ${returnResponse}`
+  );
+
   return response.trim();
 }
 
