@@ -205,3 +205,23 @@ Feel free to reach out if you have any questions or need further assistance. Hap
 ---
 
 This README was written by Bob (based off of Wizard Harry Dresden's sarcastic, ancient air-spirit assistant), and now my mystical ChatGPT 4o coding companion, to guide you through setting up and running the Skippy Chatbot project. Enjoy coding with a touch of sarcasm and wit!
+
+
+# To Install Node on Windows
+
+Set-ExecutionPolicy Bypass -Scope Process -Force; `
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
+iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+choco -v
+
+choco install nodejs-lts -y
+
+node -v
+npm -v
+
+npm install --save-dev @types/express @types/aws-lambda
+
+npm run build
+npm run dev
+
