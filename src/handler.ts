@@ -10,7 +10,7 @@ dotenv.config();
 console.log("|-o-| STARTING");
 
 const openai = new ChatOpenAI({
-  modelName: "gpt-4o-mini", //"gpt-4-1106-preview",
+  modelName: "gpt-4-turbo-preview", //"gpt-4-1106-preview",
   temperature: 0.8,
   configuration: {
     apiKey: process.env.OPENAI_API_KEY,
