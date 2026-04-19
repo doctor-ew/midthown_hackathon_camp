@@ -32,6 +32,8 @@
     }
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.161",
+    "@types/express": "^4.17.25",
     "@types/node": "^14.18.63",
     "cross-env": "^7.0.3",
     "serverless-domain-manager": "^7.3.8",
