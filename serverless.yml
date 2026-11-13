@@ -2,15 +2,38 @@ service: langchain-chatbot
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs24.x
   environment:
     OPENAI_API_KEY: ${env:OPENAI_API_KEY}
-  timeout: 60
+    OPENAI_MODEL: ${env:OPENAI_MODEL, 'gpt-4o'}
+    TURNSTILE_SECRET_KEY: ${env:TURNSTILE_SECRET_KEY}
+    TURNSTILE_HOSTNAMES: ${env:TURNSTILE_HOSTNAMES, 'doctorew.com,www.doctorew.com'}
+    AI_ALLOWED_ORIGINS: ${env:AI_ALLOWED_ORIGINS, 'https://doctorew.com,https://www.doctorew.com'}
+    AI_GUARD_TABLE:
+      Ref: AiGuardTable
+    AI_DAILY_LIMIT: ${env:AI_DAILY_LIMIT, '300'}
+    AI_MONTHLY_LIMIT: ${env:AI_MONTHLY_LIMIT, '2000'}
+    AI_HOURLY_IP_LIMIT: ${env:AI_HOURLY_IP_LIMIT, '60'}
+  timeout: 40
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+          Resource:
+            Fn::GetAtt: [AiGuardTable, Arn]
+          Condition:
+            ForAnyValue:StringEquals:
+              dynamodb:EnclosingOperation:
+                - TransactWriteItems
   stage: dev
 
 functions:
   chatbot:
     handler: dist/src/handler.handler
+    reservedConcurrency: 2
     events:
       - http:
           path: chatbot
@@ -18,6 +41,7 @@ functions:
           cors: true # <-- CORS!
   translation:
     handler: dist/src/handler.handler
+    reservedConcurrency: 2
     events:
       - http:
           path: translation
@@ -25,12 +49,15 @@ functions:
           cors: true # <-- CORS!
   personalAssistant:
     handler: dist/src/handler.handler
+    reservedConcurrency: 2
     events:
       - http:
           path: personalAssistant
           method: post
+          cors: true
   sentimentAnalysis:
     handler: dist/src/handler.handler
+    reservedConcurrency: 2
     events:
       - http:
           path: sentimentAnalysis
@@ -38,6 +65,7 @@ functions:
           cors: true # <-- CORS!
   foxtrot:
     handler: dist/src/handler.handler
+    reservedConcurrency: 2
     events:
       - http:
           path: foxtrot
@@ -45,14 +73,51 @@ functions:
           cors: true # <-- CORS!
 
 plugins:
+  - ./scripts/stage-guard.cjs
   - serverless-dotenv-plugin
   - serverless-offline
   - serverless-domain-manager
 
 custom:
+  dotenv:
+    include: []
   customDomain:
     domainName: skippyts.doctorew.com
     stage: ${opt:stage, self:provider.stage}
     basePath: ""
     certificateName: "*.doctorew.com"
     createRoute53Record: true
+
+resources:
+  Resources:
+    AiGuardTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+  Outputs:
+    AiGuardTableName:
+      Value:
+        Ref: AiGuardTable
+
+package:
+  patterns:
+    - '!src/**'
+    - '!test/**'
+    - '!scripts/**'
+    - '!*.ts'
+    - '!.env*'
+    - '!.claude/**'
+    - '!env.example'
+    - '!README.md'
+    - '!SECURITY-DEPLOYMENT.md'
