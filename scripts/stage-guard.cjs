@@ -15,7 +15,7 @@ module.exports = class StageGuard {
           patchOperations: [
             {op: 'replace', path: '/*/*/logging/dataTrace', value: 'false'},
             {op: 'replace', path: '/*/*/throttling/rateLimit', value: '2'},
-            {op: 'replace', path: '/*/*/throttling/burstLimit', value: '5'},
+            {op: 'replace', path: '/*/*/throttling/burstLimit', value: '10'},
           ],
         });
       },

@@ -43,7 +43,7 @@ test('Cloudflare outage and quota store outage fail closed', async () => {
 });
 test('transaction cancellation rejects replay/quota without proceeding', async () => {
   await assert.rejects(authorize(event(), config, dependencies('chatbot', {transact: async () => {
-    throw Object.assign(new Error('cancelled'), {code: 'TransactionCanceledException'});
+    throw Object.assign(new Error('cancelled'), {code: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
   }})), {statusCode: 429});
 });
 test('atomic quota transaction contains replay and all global/IP limits', () => {
@@ -60,7 +60,7 @@ test('concurrent valid challenges still consume one transaction per accepted tok
   const consumed = new Set();
   const deps = dependencies('chatbot', {transact: async tx => {
     const key = tx.TransactItems[0].Put.Item.pk;
-    if (consumed.has(key)) throw Object.assign(new Error('duplicate'), {code: 'TransactionCanceledException'});
+    if (consumed.has(key)) throw Object.assign(new Error('duplicate'), {code: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
     consumed.add(key);
   }});
   const results = await Promise.allSettled([authorize(event(), config, deps), authorize(event(), config, deps)]);
@@ -97,7 +97,7 @@ test('stage guard updates the existing stage after deployment', async () => {
   assert.equal(calls[0][1], 'describeStackResource');
   assert.equal(calls[1][1], 'updateStage');
   assert.equal(calls[1][2].restApiId, 'resolved-api');
-  assert.deepEqual(calls[1][2].patchOperations.map(p => p.value), ['false', '2', '5']);
+  assert.deepEqual(calls[1][2].patchOperations.map(p => p.value), ['false', '2', '10']);
 });
 test('Lambda handler denies all five routes without initializing the paid model', async () => {
   const previous = process.env.OPENAI_API_KEY;
@@ -145,7 +145,7 @@ test('one page challenge cannot bootstrap two grants even during Cloudflare conv
   const seen = new Set();
   const deps = dependencies('page', {transact: async tx => {
     const key = tx.TransactItems[0].Put.Item.pk;
-    if (seen.has(key)) throw Object.assign(new Error('replay'), {name: 'TransactionCanceledException'});
+    if (seen.has(key)) throw Object.assign(new Error('replay'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
     seen.add(key);
   }});
   const results = await Promise.allSettled([bootstrapSession(pageEvent(), config, deps), bootstrapSession(pageEvent(), config, deps)]);
@@ -218,7 +218,7 @@ test('reusable grant still stops when any paid-request quota is exhausted', asyn
   let used = 0;
   const deps = dependencies('page', {transact: async tx => {
     assert.equal(tx.TransactItems.length, 4);
-    if (used >= 2) throw Object.assign(new Error('quota'), {name: 'TransactionCanceledException'});
+    if (used >= 2) throw Object.assign(new Error('quota'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
     used++;
   }});
   await authorize(sessionEvent(sessionToken), config, deps);
@@ -258,4 +258,62 @@ test('Skippy uses separate system instructions while other personas retain their
   assert.equal(other[0].content, personalities.spock.replace('{question}', 'Hello'));
   const fallback = await buildChatPrompt('unrecognized').formatMessages({question: 'Hi'});
   assert.equal(fallback[0].content, personalities.skippy);
+});
+
+const conflict = () => Object.assign(new Error('conflict'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'None'}, {Code: 'TransactionConflict'}]});
+test('transaction conflict retries only storage with the same receipt before inference', async () => {
+  const grant = createSession(config, 'https://doctorew.com', '192.0.2.1', instant);
+  const writes = [], delays = [];
+  const deps = dependencies('page', {pause: async ms => delays.push(ms), transact: async tx => {
+    writes.push(tx); if (writes.length === 1) throw conflict();
+  }});
+  const result = await authorize(sessionEvent(grant.sessionToken), config, deps);
+  assert.equal(result.action, 'chatbot');
+  assert.equal(writes.length, 2); assert.equal(writes[0], writes[1]);
+  assert.equal(writes[0].TransactItems[0].Put.Item.pk, writes[1].TransactItems[0].Put.Item.pk);
+  assert.equal(delays.length, 1); assert.ok(delays[0] >= 40 && delays[0] <= 60);
+});
+test('persistent storage conflict is bounded and returns service unavailable', async () => {
+  let writes = 0, pauses = 0;
+  await assert.rejects(authorize(event(), config, dependencies('chatbot', {
+    pause: async () => pauses++, transact: async () => {writes++; throw conflict();},
+  })), {statusCode: 503});
+  assert.equal(writes, 3); assert.equal(pauses, 2);
+});
+test('failed conditions, ambiguous cancellation and network failures are never retried', async () => {
+  for (const [error, statusCode] of [
+    [Object.assign(new Error('quota'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]}), 429],
+    [Object.assign(new Error('mixed'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}, {Code: 'TransactionConflict'}]}), 429],
+    [Object.assign(new Error('ambiguous'), {name: 'TransactionCanceledException'}), 503],
+    [Object.assign(new Error('timeout'), {name: 'TimeoutError'}), 503],
+  ]) {
+    let writes = 0;
+    await assert.rejects(authorize(event(), config, dependencies('chatbot', {
+      pause: async () => assert.fail('must not pause'), transact: async () => {writes++; throw error;},
+    })), {statusCode});
+    assert.equal(writes, 1);
+  }
+});
+test('page bootstrap also retries only explicit storage conflicts', async () => {
+  const writes = [];
+  const grant = await bootstrapSession(pageEvent(), config, dependencies('page', {
+    pause: async () => {}, transact: async tx => {writes.push(tx); if (writes.length === 1) throw conflict();},
+  }));
+  assert.ok(grant.sessionToken); assert.equal(writes.length, 2); assert.equal(writes[0], writes[1]);
+  assert.equal(writes[0].TransactItems.length, 1);
+  await assert.rejects(bootstrapSession(pageEvent(), config, dependencies('page', {
+    pause: async () => {}, transact: async () => {throw conflict();},
+  })), {statusCode: 503});
+});
+test('translation shares Skippy voice and treats braces in source/language as literal values', async () => {
+  const {buildTranslationPrompt, buildCodePrompt} = require('../dist/src/config/chatPrompt');
+  const personalities = require('../dist/src/config/personalityMatrix').default;
+  const messages = await buildTranslationPrompt().formatMessages({language: '{missing}', question: 'value {question}'});
+  assert.equal(messages[0]._getType(), 'system'); assert.equal(messages[0].content, personalities.skippy);
+  assert.match(messages[1].content, /do not add your own insults, profanity, or commentary inside the translation/);
+  assert.equal(messages[2].content, 'Target language: {missing}\nText to translate:\nvalue {question}');
+  const code = await buildCodePrompt().formatMessages({programmingLanguage: '{missing}'});
+  assert.equal(code[1].content, 'Programming language: {missing}\nSentence: I will not use ChatGPT to code for me');
+  assert.match(code[0].content, /only a complete, executable code block/);
+  assert.ok(!code[0].content.includes('Skippy'));
 });

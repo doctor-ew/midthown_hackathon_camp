@@ -31,6 +31,7 @@ export interface GuardDependencies {
   verify: (secret: string, token: string, ip: string) => Promise<Verification>;
   transact: (params: TransactWriteCommandInput) => Promise<unknown>;
   now: () => Date;
+  pause?: (milliseconds: number) => Promise<void>;
 }
 const list = (s: string | undefined, defaults: string[]) => s ? s.split(",").map(x => x.trim()).filter(Boolean) : defaults;
 function limit(value: string | undefined, fallback: number): number {
@@ -192,6 +193,32 @@ export function validateSession(token: string, config: GuardConfig, origin: stri
       claims.origin !== origin || claims.ipHash !== sessionIpHash(config.secret, ip) ||
       typeof claims.nonce !== "string" || !/^[a-f0-9]{32}$/.test(claims.nonce)) throw invalid();
 }
+interface TransactionFailure {
+  code?: string;
+  name?: string;
+  CancellationReasons?: {Code?: string}[];
+}
+function transactionReasons(error: unknown): string[] {
+  if (!error || typeof error !== "object") return [];
+  const failure = error as TransactionFailure;
+  if ((failure.code || failure.name) !== "TransactionCanceledException") return [];
+  return (failure.CancellationReasons || []).map(reason => reason.Code || "None");
+}
+function conditionFailed(error: unknown): boolean {
+  return transactionReasons(error).includes("ConditionalCheckFailed");
+}
+export async function transactWithConflictRetry(params: TransactWriteCommandInput, deps: GuardDependencies): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { await deps.transact(params); return; }
+    catch (error) {
+      const reasons = transactionReasons(error);
+      const conflictOnly = reasons.includes("TransactionConflict") && reasons.every(code => code === "None" || code === "TransactionConflict");
+      if (!conflictOnly || attempt === 2) throw error;
+      const delay = 40 * (attempt + 1) + Math.floor(Math.random() * 21);
+      await (deps.pause || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))))(delay);
+    }
+  }
+}
 export async function bootstrapSession(event: APIGatewayProxyEvent, config: GuardConfig, deps: GuardDependencies = defaultDependencies): Promise<{sessionToken: string; expiresAt: number}> {
   if (routeOf(event) !== "session") throw new PublicError(404, "Not found.");
   const body = parseBody(event, {turnstileToken: 2048});
@@ -201,12 +228,12 @@ export async function bootstrapSession(event: APIGatewayProxyEvent, config: Guar
   const now = deps.now();
   const tokenHash = createHash("sha256").update(body.turnstileToken).digest("hex");
   try {
-    await deps.transact({TransactItems: [{Put: {
+    await transactWithConflictRetry({TransactItems: [{Put: {
       TableName: config.table, Item: {pk: `token:${tokenHash}`, expiresAt: Math.floor(now.getTime() / 1000) + 600},
       ConditionExpression: "attribute_not_exists(pk)",
-    }}]});
+    }}]}, deps);
   } catch (error) {
-    if (((error as {code?: string; name?: string}).code || (error as Error).name) === "TransactionCanceledException") throw new PublicError(403, "This verification was already used. Please verify again.");
+    if (conditionFailed(error)) throw new PublicError(403, "This verification was already used. Please verify again.");
     throw new PublicError(503, "AI demos are temporarily unavailable.");
   }
   return createSession(config, origin, ip, now);
@@ -225,9 +252,9 @@ export async function authorize(event: APIGatewayProxyEvent, config: GuardConfig
     await verifyChallenge(config, parsed.body.turnstileToken || "", ip, parsed.action, deps);
     receipt = parsed.body.turnstileToken || "";
   }
-  try { await deps.transact(quotaTransaction(config, receipt, ip, now, receiptKind)); }
+  try { await transactWithConflictRetry(quotaTransaction(config, receipt, ip, now, receiptKind), deps); }
   catch (error) {
-    if (((error as {code?: string; name?: string}).code || (error as Error).name) === "TransactionCanceledException") throw new PublicError(429, "This demo has reached its usage limit, or this verification was already used. Please try again later.");
+    if (conditionFailed(error)) throw new PublicError(429, "This demo has reached its usage limit, or this verification was already used. Please try again later.");
     throw new PublicError(503, "AI demos are temporarily unavailable.");
   }
   return parsed;

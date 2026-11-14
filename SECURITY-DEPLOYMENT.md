@@ -38,9 +38,9 @@ For each paid request, a single DynamoDB transaction stores a unique request rec
 
 ## Limits
 
-Requests are limited to 16 KiB JSON; questions to 4,000 characters; language and personality fields to 80 characters; Turnstile tokens and session grants to 2,048 characters. Model output is capped at 600 tokens and returned text at 12,000 characters. The model request has a 25-second timeout and no SDK retries. Verification and DynamoDB calls each have a five-second timeout. Lambda timeout is 40 seconds.
+Requests are limited to 16 KiB JSON; questions to 4,000 characters; language and personality fields to 80 characters; Turnstile tokens and session grants to 2,048 characters. Model output is capped at 600 tokens and returned text at 12,000 characters. The model request has a 25-second timeout and no SDK retries. Verification and individual DynamoDB calls each have a five-second timeout. Explicit DynamoDB transaction-conflict cancellations receive at most two storage-only retries with short jittered delays, using the same transaction and request receipt. Failed conditions are not retried and return HTTP 429 for inference or HTTP 403 for a used page challenge. Persistent conflicts and ambiguous cancellations return HTTP 503. Network timeouts and model requests are never retried by this guard. Lambda timeout is 40 seconds.
 
-Each function reserves two concurrent executions. The post-deployment hook applies API Gateway stage throttles of two requests per second with a burst of five, and disables data tracing. These throttles are best-effort traffic controls; the conditional DynamoDB transaction enforces accepted inference request caps. Classroom users sharing an IP also share the hourly IP allowance. Limits cover this handler's AI calls, not all account charges or other API-key consumers.
+Each function reserves two concurrent executions. The post-deployment hook applies API Gateway stage throttles of two requests per second with a burst of ten, and disables data tracing. These throttles are best-effort traffic controls; the conditional DynamoDB transaction enforces accepted inference request caps. The burst allowance covers the initial page verification and two automatic demos, including their preflight requests. Classroom users sharing an IP also share the hourly IP allowance. Limits cover this handler's AI calls, not all account charges or other API-key consumers.
 
 ## Build and release
 
@@ -55,7 +55,7 @@ The existing `npm test` script runs `test-local.ts` and may make real model requ
 
 ## Character behavior
 
-Skippy uses a separate system message with concise, original, sarcastic beer-can AI instructions and occasional profanity. User input remains a separate human message. Other configured personality templates retain their existing behavior. Prompt structure tests establish this separation; live answer quality still requires a small human review.
+Skippy uses a separate system message for both chat and translation, with concise, original, sarcastic beer-can AI instructions and occasional profanity. Short style examples calibrate the tone, and requested response length takes priority over extra banter. Translation returns a faithful translation in its own section and at most one separate short Skippy remark. User input remains a separate human message. Language and programming-language values are bound prompt variables, so literal braces are not interpreted as template placeholders. Other configured personality templates retain their existing behavior. Prompt structure tests establish this separation; live answer quality still requires a small human review.
 
 ## References
 

@@ -3,7 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import * as dotenv from "dotenv";
-import { buildChatPrompt } from "./config/chatPrompt";
+import { buildChatPrompt, buildTranslationPrompt, buildCodePrompt } from "./config/chatPrompt";
 import { authorize, bootstrapSession, configuration, PublicError, responseHeaders, routeOf } from "./security";
 
 dotenv.config();
@@ -47,9 +47,7 @@ async function getTranslation(
   prompt: string,
   targetLanguage: string
 ): Promise<string> {
-  const translationPrompt = ChatPromptTemplate.fromTemplate(
-    `You are a submind of Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series tasked as a translation AI. Translate the following text from English to ${targetLanguage}:\n{question}. However, if you do not know enough about the language in question, respond with wit, sarcasm, and a touch of arrogance like Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series.`
-  );
+  const translationPrompt = buildTranslationPrompt();
 
   const outputParser = new StringOutputParser();
 
@@ -57,6 +55,7 @@ async function getTranslation(
 
   const stream = await chain.stream({
     question: prompt,
+    language: targetLanguage,
   });
 
   let response = "";
@@ -107,22 +106,14 @@ async function getSentimentAnalysis(prompt: string): Promise<string> {
 }
 
 async function getFoxtrotCode(language: string): Promise<string> {
-  /*
-  const codePrompt = ChatPromptTemplate.fromTemplate(
-    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`
-  );
-  */
-  const codePrompt = ChatPromptTemplate.fromTemplate(
-    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`
-  );
+  const codePrompt = buildCodePrompt();
 
   const outputParser = new StringOutputParser();
 
   const chain = codePrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
-    //question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`,
-    question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`,
+    programmingLanguage: language,
   });
 
   let response = "";
