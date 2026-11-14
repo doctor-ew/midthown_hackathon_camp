@@ -63,3 +63,13 @@ Skippy uses a separate system message for both chat and translation, with concis
 - [DynamoDB transaction IAM permissions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)
 - [DynamoDB table resource](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-dynamodb-table.html)
 - [API Gateway deployment stage settings](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-apigateway-deployment-stagedescription.html)
+
+## YATA channel planning
+
+The existing `POST /chatbot` route also accepts a bounded personal-channel request. Send `mode: "channel"`, a `question` of at most 1,000 characters, a finite `host`, and `shows` containing a JSON-encoded array of offered `{id,title,channel}` descriptors. The offered list contains 1–100 entries, uses unique lowercase alphanumeric/hyphen IDs, and is limited to 12,000 characters within the existing 16 KiB request limit. Existing session verification, replay receipts and inference quotas apply unchanged. No catalog or source write operation is exposed.
+
+Supported hosts are `stubing`, `arnold`, `jabberjaw`, `benson`, `mrt`, `murdock`, `twiki`, and `starbuck`. Arnold refers to Arnold Jackson; Starbuck refers to the original Battlestar Galactica character. The client selects a host from this finite set.
+
+The response contains `plan` with `host`, `title` (at most 80 characters), `intro` (at most 700 characters), and `showIds` (at most 12 unique offered IDs). Empty `showIds` represents no suitable matches and must not start playback. Invalid model output returns a service error; it is never repaired into an invented catalog entry. Responses contain no sources or URLs. Clients must revalidate selected IDs against their current verified, playable catalog and display a review before tuning. Offered descriptors are caller data, not an authoritative server catalog; they confer no publication privileges.
+
+Run `npm run test:security` to build and exercise security and planner contracts. Deployment must include the newly compiled `dist/src/channelPlanner.js` alongside the changed handler, security and personality modules. No additional API Gateway route or Lambda is required.

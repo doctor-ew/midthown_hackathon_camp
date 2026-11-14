@@ -1,3 +1,4 @@
+import { parseChannelRequest } from "./channelPlanner";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { request } from "https";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -19,6 +20,9 @@ export interface GuardConfig {
   hourlyIpLimit: number;
 }
 export interface Body {
+  mode?: string;
+  host?: string;
+  shows?: string;
   question?: string;
   language?: string;
   programmingLanguage?: string;
@@ -84,8 +88,12 @@ export function routeOf(event: APIGatewayProxyEvent): string {
 export function parseRequest(event: APIGatewayProxyEvent): { action: Action; body: Body } {
   const action = routeOf(event);
   if (!(ACTIONS as readonly string[]).includes(action)) throw new PublicError(404, "Not found.");
-  const body = parseBody(event, {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048});
+  const body = parseBody(event, {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048, mode: 16, host: 16, shows: 12000});
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
+  if (body.mode !== undefined || body.host !== undefined || body.shows !== undefined) {
+    if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");
+    try { parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
+  }
   if (action === "foxtrot") {
     if (!body.programmingLanguage?.trim()) throw new PublicError(400, "Choose a programming language.");
   } else if (!body.question?.trim()) throw new PublicError(400, "Enter a question or text first.");

@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { channelPrompt, parseChannelPlan, parseChannelRequest } from "./channelPlanner";
 import * as dotenv from "dotenv";
 import { buildChatPrompt, buildTranslationPrompt, buildCodePrompt, normalizeCharacterReply } from "./config/chatPrompt";
 import { authorize, bootstrapSession, configuration, PublicError, responseHeaders, routeOf } from "./security";
@@ -135,6 +136,14 @@ export const handler = async (
       return {statusCode: 200, headers, body: JSON.stringify(grant)};
     }
     const { action, body: requestBody } = await authorize(event, config);
+    if (requestBody.mode === "channel") {
+      const request = parseChannelRequest(requestBody);
+      const text = await channelPrompt(request).pipe(model()).pipe(new StringOutputParser()).invoke({request: request.question, catalog: JSON.stringify(request.shows)});
+      let plan;
+      try { plan = parseChannelPlan(text, request); }
+      catch { throw new PublicError(503, "The host sent an invalid lineup. Please try again."); }
+      return {statusCode: 200, headers, body: JSON.stringify({plan})};
+    }
     const userQuestion = requestBody.question || "";
     const targetLanguage = requestBody.language || "Spanish";
     const programmingLanguage = requestBody.programmingLanguage || "Python";

@@ -9,7 +9,7 @@
     "dev": "ts-node src/app.ts",
     "lambda": "serverless offline",
     "test": "cross-env NODE_ENV=development ts-node test-local.ts",
-    "test:security": "npm run build && node --test test/security.test.cjs"
+    "test:security": "npm run build && node --test test/*.test.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1168.0",
