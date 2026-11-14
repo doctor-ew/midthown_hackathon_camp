@@ -249,15 +249,14 @@ test('Skippy uses separate system instructions while other personas retain their
   assert.equal(messages[0]._getType(), 'system');
   assert.equal(messages[1]._getType(), 'human');
   assert.equal(messages[1].content, question);
-  assert.equal(messages[0].content, personalities.skippy);
+  assert.equal(messages[0].content, personalities.skippy.replace(/\n\{question\}$/, ""));
   assert.ok(!messages[0].content.includes(question));
-  assert.match(messages[0].content, /beer-can-shaped/);
-  assert.match(messages[0].content, /foul-mouthed/);
+  assert.match(messages[0].content, /wit, sarcasm, and a touch of arrogance/);
   const other = await buildChatPrompt('spock').formatMessages({question: 'Hello'});
   assert.equal(other.length, 1);
   assert.equal(other[0].content, personalities.spock.replace('{question}', 'Hello'));
   const fallback = await buildChatPrompt('unrecognized').formatMessages({question: 'Hi'});
-  assert.equal(fallback[0].content, personalities.skippy);
+  assert.equal(fallback[0].content, personalities.skippy.replace(/\n\{question\}$/, ""));
 });
 
 const conflict = () => Object.assign(new Error('conflict'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'None'}, {Code: 'TransactionConflict'}]});
@@ -309,8 +308,8 @@ test('translation shares Skippy voice and treats braces in source/language as li
   const {buildTranslationPrompt, buildCodePrompt} = require('../dist/src/config/chatPrompt');
   const personalities = require('../dist/src/config/personalityMatrix').default;
   const messages = await buildTranslationPrompt().formatMessages({language: '{missing}', question: 'value {question}'});
-  assert.equal(messages[0]._getType(), 'system'); assert.equal(messages[0].content, personalities.skippy);
-  assert.match(messages[1].content, /do not add your own insults, profanity, or commentary inside the translation/);
+  assert.equal(messages[0]._getType(), 'system'); assert.equal(messages[0].content, personalities.skippy.replace(/\n\{question\}$/, ""));
+  assert.match(messages[1].content, /Never present invented vocabulary as established fact/);
   assert.equal(messages[2].content, 'Target language: {missing}\nText to translate:\nvalue {question}');
   const code = await buildCodePrompt().formatMessages({programmingLanguage: '{missing}'});
   assert.equal(code[1].content, 'Programming language: {missing}\nSentence: I will not use ChatGPT to code for me');
