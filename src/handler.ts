@@ -3,7 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import * as dotenv from "dotenv";
-import { buildChatPrompt, buildTranslationPrompt, buildCodePrompt } from "./config/chatPrompt";
+import { buildChatPrompt, buildTranslationPrompt, buildCodePrompt, normalizeCharacterReply } from "./config/chatPrompt";
 import { authorize, bootstrapSession, configuration, PublicError, responseHeaders, routeOf } from "./security";
 
 dotenv.config();
@@ -40,7 +40,7 @@ async function getOpenAIResponse(
     response += chunk;
   }
 
-  return response.trim();
+  return normalizeCharacterReply(response);
 }
 
 async function getTranslation(
@@ -62,7 +62,7 @@ async function getTranslation(
   for await (const chunk of stream) {
     response += chunk;
   }
-  return response.trim();
+  return normalizeCharacterReply(response);
 }
 
 async function getPersonalAssistantResponse(prompt: string): Promise<string> {
