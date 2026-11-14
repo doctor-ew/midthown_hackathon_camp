@@ -34,7 +34,7 @@ A single DynamoDB transaction stores a token digest and increments daily, monthl
 
 Requests are limited to 16 KiB JSON; questions to 4,000 characters; language and personality fields to 80 characters; Turnstile tokens to 2,048 characters. Model output is capped at 600 tokens and returned text at 12,000 characters. The model request has a 25-second timeout and no SDK retries. Verification and DynamoDB calls each have a five-second timeout. Lambda timeout is 40 seconds.
 
-Each function reserves two concurrent executions. The packaging hook applies API Gateway stage throttles of two requests per second with a burst of five, and disables data tracing. These throttles are best-effort traffic controls; the conditional DynamoDB transaction enforces accepted inference request caps. Classroom users sharing an IP also share the hourly IP allowance. Limits cover this handler's AI calls, not all account charges or other API-key consumers.
+Each function reserves two concurrent executions. The post-deployment hook applies API Gateway stage throttles of two requests per second with a burst of five, and disables data tracing. These throttles are best-effort traffic controls; the conditional DynamoDB transaction enforces accepted inference request caps. Classroom users sharing an IP also share the hourly IP allowance. Limits cover this handler's AI calls, not all account charges or other API-key consumers.
 
 ## Build and release
 

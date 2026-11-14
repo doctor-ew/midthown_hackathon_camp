@@ -87,12 +87,17 @@ test('responses cannot be cached or shared across origins', () => {
 test('invalid quota configuration fails closed', () => {
   for (const value of ['0', '-1', 'nope', '1.5', 'Infinity']) assert.throws(() => configuration({AI_DAILY_LIMIT: value}), {statusCode: 503});
 });
-test('IaC plugin attaches API throttles without guessing generated resource IDs', () => {
+test('stage guard updates the existing stage after deployment', async () => {
   const Plugin = require('../scripts/stage-guard.cjs');
-  const deployment = {Type: 'AWS::ApiGateway::Deployment', Properties: {}};
-  const serverless = {service: {provider: {compiledCloudFormationTemplate: {Resources: {generated: deployment}}}}};
-  new Plugin(serverless).hooks['after:aws:package:finalize:mergeCustomProviderResources']();
-  assert.deepEqual(deployment.Properties.StageDescription.MethodSettings[0], {HttpMethod: '*', ResourcePath: '/*', DataTraceEnabled: false, ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5});
+  const calls = [];
+  const provider = {naming: {getStackName: () => 'stack', getRestApiLogicalId: () => 'api'}, getApiGatewayStage: () => 'dev',
+    request: async (...args) => {calls.push(args); return {StackResourceDetail:{PhysicalResourceId:'resolved-api'}};}};
+  const plugin = new Plugin({getProvider: () => provider});
+  await plugin.hooks['after:deploy:finalize']();
+  assert.equal(calls[0][1], 'describeStackResource');
+  assert.equal(calls[1][1], 'updateStage');
+  assert.equal(calls[1][2].restApiId, 'resolved-api');
+  assert.deepEqual(calls[1][2].patchOperations.map(p => p.value), ['false', '2', '5']);
 });
 test('Lambda handler denies all five routes without initializing the paid model', async () => {
   const previous = process.env.OPENAI_API_KEY;

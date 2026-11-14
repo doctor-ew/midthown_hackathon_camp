@@ -1,19 +1,23 @@
-// Serverless v3 generates a timestamped deployment logical ID. Apply stage limits
-// to that generated resource without relying on a particular timestamp.
+// Update the existing API stage after deployment; StageDescription on a new
+// Deployment conflicts with a stage that already exists.
 module.exports = class StageGuard {
   constructor(serverless) {
     this.hooks = {
-      'after:aws:package:finalize:mergeCustomProviderResources': () => {
-        const resources = serverless.service.provider.compiledCloudFormationTemplate.Resources;
-        for (const resource of Object.values(resources)) {
-          if (resource.Type !== 'AWS::ApiGateway::Deployment') continue;
-          resource.Properties.StageDescription = {
-            ...(resource.Properties.StageDescription || {}),
-            DataTraceEnabled: false,
-            MethodSettings: [{HttpMethod: '*', ResourcePath: '/*',
-              DataTraceEnabled: false, ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5}],
-          };
-        }
+      'after:deploy:finalize': async () => {
+        const provider = serverless.getProvider('aws');
+        const result = await provider.request('CloudFormation', 'describeStackResource', {
+          StackName: provider.naming.getStackName(),
+          LogicalResourceId: provider.naming.getRestApiLogicalId(),
+        });
+        await provider.request('APIGateway', 'updateStage', {
+          restApiId: result.StackResourceDetail.PhysicalResourceId,
+          stageName: provider.getApiGatewayStage(),
+          patchOperations: [
+            {op: 'replace', path: '/*/*/logging/dataTrace', value: 'false'},
+            {op: 'replace', path: '/*/*/throttling/rateLimit', value: '2'},
+            {op: 'replace', path: '/*/*/throttling/burstLimit', value: '5'},
+          ],
+        });
       },
     };
   }
