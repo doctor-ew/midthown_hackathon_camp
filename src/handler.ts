@@ -3,8 +3,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import * as dotenv from "dotenv";
-import personalities from "./config/personalityMatrix";
-import { authorize, configuration, PublicError, responseHeaders } from "./security";
+import { buildChatPrompt } from "./config/chatPrompt";
+import { authorize, bootstrapSession, configuration, PublicError, responseHeaders, routeOf } from "./security";
 
 dotenv.config();
 
@@ -26,10 +26,7 @@ async function getOpenAIResponse(
   prompt: string,
   personality: string
 ): Promise<string> {
-  const personalityTemplate =
-    Object.prototype.hasOwnProperty.call(personalities, personality) ? personalities[personality] : personalities["skippy"];
-
-  const chatPrompt = ChatPromptTemplate.fromTemplate(personalityTemplate);
+  const chatPrompt = buildChatPrompt(personality);
   const outputParser = new StringOutputParser();
 
   const chain = chatPrompt.pipe(model()).pipe(outputParser);
@@ -142,6 +139,10 @@ export const handler = async (
   try {
     const config = configuration();
     headers = responseHeaders(event, config.origins);
+    if (routeOf(event) === "session") {
+      const grant = await bootstrapSession(event, config);
+      return {statusCode: 200, headers, body: JSON.stringify(grant)};
+    }
     const { action, body: requestBody } = await authorize(event, config);
     const userQuestion = requestBody.question || "";
     const targetLanguage = requestBody.language || "Spanish";
@@ -160,6 +161,6 @@ export const handler = async (
     const statusCode = error instanceof PublicError ? error.statusCode : 503;
     const message = error instanceof PublicError ? error.message : "The AI demo is temporarily unavailable. Please try again.";
     if (statusCode === 429) headers["Retry-After"] = "3600";
-    return {statusCode, headers, body: JSON.stringify({error: message})};
+    return {statusCode, headers, body: JSON.stringify({error: message, ...(statusCode === 401 ? {code: "verification_required"} : {})})};
   }
 };

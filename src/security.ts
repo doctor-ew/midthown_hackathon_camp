@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { request } from "https";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, TransactWriteCommand, TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
@@ -23,7 +23,8 @@ export interface Body {
   language?: string;
   programmingLanguage?: string;
   personality?: string;
-  turnstileToken: string;
+  turnstileToken?: string;
+  sessionToken?: string;
 }
 export interface Verification { success?: boolean; hostname?: string; action?: string; }
 export interface GuardDependencies {
@@ -61,9 +62,7 @@ export function responseHeaders(event: APIGatewayProxyEvent, origins: string[]):
   if (origins.includes(origin)) headers["Access-Control-Allow-Origin"] = origin;
   return headers;
 }
-export function parseRequest(event: APIGatewayProxyEvent): { action: Action; body: Body } {
-  const action = (event.path || "").replace(/^\/dev\//, "/").slice(1);
-  if (!(ACTIONS as readonly string[]).includes(action)) throw new PublicError(404, "Not found.");
+function parseBody(event: APIGatewayProxyEvent, caps: Record<string, number>): Body {
   if (event.httpMethod !== "POST") throw new PublicError(405, "Method not allowed.");
   if (event.isBase64Encoded || !event.body || Buffer.byteLength(event.body, "utf8") > 16384) {
     throw new PublicError(400, "Invalid request.");
@@ -73,11 +72,19 @@ export function parseRequest(event: APIGatewayProxyEvent): { action: Action; bod
   let body: Body;
   try { body = JSON.parse(event.body); } catch { throw new PublicError(400, "Invalid request."); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new PublicError(400, "Invalid request.");
-  const caps: Record<string, number> = {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048};
   for (const [key, value] of Object.entries(body)) {
     if (!Object.prototype.hasOwnProperty.call(caps, key) || typeof value !== "string" || value.length > caps[key]) throw new PublicError(400, "Invalid request.");
   }
-  if (typeof body.turnstileToken !== "string" || !body.turnstileToken.trim()) throw new PublicError(403, "Please complete the verification and try again.");
+  return body;
+}
+export function routeOf(event: APIGatewayProxyEvent): string {
+  return (event.path || "").replace(/^\/dev\//, "/").slice(1);
+}
+export function parseRequest(event: APIGatewayProxyEvent): { action: Action; body: Body } {
+  const action = routeOf(event);
+  if (!(ACTIONS as readonly string[]).includes(action)) throw new PublicError(404, "Not found.");
+  const body = parseBody(event, {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048});
+  if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (action === "foxtrot") {
     if (!body.programmingLanguage?.trim()) throw new PublicError(400, "Choose a programming language.");
   } else if (!body.question?.trim()) throw new PublicError(400, "Enter a question or text first.");
@@ -105,7 +112,7 @@ export function verifyToken(secret: string, token: string, ip: string): Promise<
     req.end(data);
   });
 }
-export function quotaTransaction(config: GuardConfig, token: string, ip: string, now: Date): TransactWriteCommandInput {
+export function quotaTransaction(config: GuardConfig, token: string, ip: string, now: Date, receiptKind = "token"): TransactWriteCommandInput {
   const epoch = Math.floor(now.getTime() / 1000);
   const date = now.toISOString();
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -116,7 +123,7 @@ export function quotaTransaction(config: GuardConfig, token: string, ip: string,
     {pk: `ip:${date.slice(0, 13)}:${ipHash}`, cap: config.hourlyIpLimit, ttl: epoch + 7200},
   ];
   return {TransactItems: [
-    {Put: {TableName: config.table, Item: {pk: `token:${tokenHash}`, expiresAt: epoch + 600}, ConditionExpression: "attribute_not_exists(pk)"}},
+    {Put: {TableName: config.table, Item: {pk: `${receiptKind}:${tokenHash}`, expiresAt: epoch + 600}, ConditionExpression: "attribute_not_exists(pk)"}},
     ...counters.map(counter => ({Update: {
       TableName: config.table, Key: {pk: counter.pk},
       UpdateExpression: "SET expiresAt = :ttl ADD #used :one",
@@ -127,25 +134,98 @@ export function quotaTransaction(config: GuardConfig, token: string, ip: string,
   ]};
 }
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({maxAttempts: 1}));
-export async function authorize(event: APIGatewayProxyEvent, config: GuardConfig, deps: GuardDependencies = {
+const defaultDependencies: GuardDependencies = {
   verify: verifyToken, transact: params => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     return client.send(new TransactWriteCommand(params), {abortSignal: controller.signal}).finally(() => clearTimeout(timer));
   }, now: () => new Date(),
-}): Promise<{action: Action; body: Body}> {
-  const parsed = parseRequest(event);
+};
+function requestContext(event: APIGatewayProxyEvent, config: GuardConfig): {origin: string; ip: string} {
   if (!config.secret || !config.table || !config.hostnames.length || !config.origins.length) throw new PublicError(503, "AI demos are temporarily unavailable.");
-  if (!config.origins.includes(originOf(event))) throw new PublicError(403, "This origin is not allowed.");
+  const origin = originOf(event);
+  if (!config.origins.includes(origin)) throw new PublicError(403, "This origin is not allowed.");
   const ip = event.requestContext?.identity?.sourceIp;
   if (!ip) throw new PublicError(403, "Request verification failed.");
+  return {origin, ip};
+}
+async function verifyChallenge(config: GuardConfig, token: string, ip: string, action: string, deps: GuardDependencies): Promise<void> {
   let verification: Verification;
-  try { verification = await deps.verify(config.secret, parsed.body.turnstileToken, ip); }
+  try { verification = await deps.verify(config.secret, token, ip); }
   catch { throw new PublicError(503, "Verification is temporarily unavailable. Please try again."); }
-  if (!verification || verification.success !== true || !config.hostnames.includes(verification.hostname || "") || verification.action !== parsed.action) {
+  if (!verification || verification.success !== true || !config.hostnames.includes(verification.hostname || "") || verification.action !== action) {
     throw new PublicError(403, "Please complete the verification and try again.");
   }
-  try { await deps.transact(quotaTransaction(config, parsed.body.turnstileToken, ip, deps.now())); }
+}
+function base64url(value: Buffer): string {
+  return value.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+function sessionIpHash(secret: string, ip: string): string {
+  return createHmac("sha256", secret).update("doctorew.ai.page-session.ip.v1\0" + ip).digest("hex");
+}
+function sessionSignature(secret: string, payload: string): Buffer {
+  const key = createHmac("sha256", secret).update("doctorew.ai.page-session.signing-key.v1").digest();
+  return createHmac("sha256", key).update("doctorew.ai.page-session.v1\0" + payload).digest();
+}
+export function createSession(config: GuardConfig, origin: string, ip: string, now: Date): {sessionToken: string; expiresAt: number} {
+  const issuedAt = Math.floor(now.getTime() / 1000);
+  const expiresAt = issuedAt + 1800;
+  const payload = base64url(Buffer.from(JSON.stringify({
+    v: 1, iat: issuedAt, exp: expiresAt, origin,
+    ipHash: sessionIpHash(config.secret, ip), nonce: randomBytes(16).toString("hex"),
+  })));
+  return {sessionToken: `${payload}.${base64url(sessionSignature(config.secret, payload))}`, expiresAt};
+}
+export function validateSession(token: string, config: GuardConfig, origin: string, ip: string, now: Date): void {
+  const invalid = () => new PublicError(401, "Page verification expired or is invalid. Please verify again.");
+  if (token.length > 2048 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) throw invalid();
+  const [payload, suppliedSignature] = token.split(".");
+  const expected = sessionSignature(config.secret, payload);
+  const supplied = Buffer.from(suppliedSignature.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  if (supplied.length !== expected.length || !timingSafeEqual(expected, supplied) || base64url(supplied) !== suppliedSignature) throw invalid();
+  let claims: {v: number; iat: number; exp: number; origin: string; ipHash: string; nonce: string};
+  try { claims = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")); }
+  catch { throw invalid(); }
+  const epoch = Math.floor(now.getTime() / 1000);
+  if (!claims || claims.v !== 1 || !Number.isSafeInteger(claims.iat) || !Number.isSafeInteger(claims.exp) ||
+      claims.iat > epoch || claims.exp <= epoch || claims.exp - claims.iat !== 1800 ||
+      claims.origin !== origin || claims.ipHash !== sessionIpHash(config.secret, ip) ||
+      typeof claims.nonce !== "string" || !/^[a-f0-9]{32}$/.test(claims.nonce)) throw invalid();
+}
+export async function bootstrapSession(event: APIGatewayProxyEvent, config: GuardConfig, deps: GuardDependencies = defaultDependencies): Promise<{sessionToken: string; expiresAt: number}> {
+  if (routeOf(event) !== "session") throw new PublicError(404, "Not found.");
+  const body = parseBody(event, {turnstileToken: 2048});
+  if (!body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
+  const {origin, ip} = requestContext(event, config);
+  await verifyChallenge(config, body.turnstileToken, ip, "page", deps);
+  const now = deps.now();
+  const tokenHash = createHash("sha256").update(body.turnstileToken).digest("hex");
+  try {
+    await deps.transact({TransactItems: [{Put: {
+      TableName: config.table, Item: {pk: `token:${tokenHash}`, expiresAt: Math.floor(now.getTime() / 1000) + 600},
+      ConditionExpression: "attribute_not_exists(pk)",
+    }}]});
+  } catch (error) {
+    if (((error as {code?: string; name?: string}).code || (error as Error).name) === "TransactionCanceledException") throw new PublicError(403, "This verification was already used. Please verify again.");
+    throw new PublicError(503, "AI demos are temporarily unavailable.");
+  }
+  return createSession(config, origin, ip, now);
+}
+export async function authorize(event: APIGatewayProxyEvent, config: GuardConfig, deps: GuardDependencies = defaultDependencies): Promise<{action: Action; body: Body}> {
+  const parsed = parseRequest(event);
+  const {origin, ip} = requestContext(event, config);
+  const now = deps.now();
+  let receipt: string;
+  let receiptKind = "token";
+  if (Object.prototype.hasOwnProperty.call(parsed.body, "sessionToken")) {
+    validateSession(parsed.body.sessionToken || "", config, origin, ip, now);
+    receipt = randomBytes(32).toString("hex");
+    receiptKind = "request";
+  } else {
+    await verifyChallenge(config, parsed.body.turnstileToken || "", ip, parsed.action, deps);
+    receipt = parsed.body.turnstileToken || "";
+  }
+  try { await deps.transact(quotaTransaction(config, receipt, ip, now, receiptKind)); }
   catch (error) {
     if (((error as {code?: string; name?: string}).code || (error as Error).name) === "TransactionCanceledException") throw new PublicError(429, "This demo has reached its usage limit, or this verification was already used. Please try again later.");
     throw new PublicError(503, "AI demos are temporarily unavailable.");
