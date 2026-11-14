@@ -138,7 +138,7 @@ export const handler = async (
     const { action, body: requestBody } = await authorize(event, config);
     if (requestBody.mode === "channel") {
       const request = parseChannelRequest(requestBody);
-      const text = await channelPrompt(request).pipe(model()).pipe(new StringOutputParser()).invoke({request: request.question, catalog: JSON.stringify(request.shows)});
+      const text = await channelPrompt(request).pipe(model().bind({response_format: {type: "json_object"}})).pipe(new StringOutputParser()).invoke({request: request.question, catalog: JSON.stringify(request.shows)});
       let plan;
       try { plan = parseChannelPlan(text, request); }
       catch { throw new PublicError(503, "The host sent an invalid lineup. Please try again."); }
