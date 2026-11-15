@@ -43,9 +43,14 @@ test('request and offered catalog remain data in prompt templates',async()=>{
   assert.ok(messages.some(message=>message.content.includes('raised eyebrow')));
 });
 
-test('expanded catalog supports 128 unique shows and rejects 129',()=>{
- const shows=Array.from({length:128},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'late-night'}));
- assert.equal(parseChannelRequest({...base,shows:JSON.stringify(shows)}).shows.length,128);
+test('expanded catalog supports 256 unique shows and rejects 257',()=>{
+ const shows=Array.from({length:256},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'late-night'}));
+ assert.equal(parseChannelRequest({...base,shows:JSON.stringify(shows)}).shows.length,256);
  shows.push({id:'excess',title:'Excess',channel:'late-night'});
  assert.throws(()=>parseChannelRequest({...base,shows:JSON.stringify(shows)}));
+});
+
+test('expanded real-world offer count passes route validation within existing byte caps',()=>{
+ const shows=Array.from({length:130},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'scifi'}));
+ assert.equal(parseRequest(event({...base,shows:JSON.stringify(shows)})).body.mode,'channel');
 });
