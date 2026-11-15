@@ -42,3 +42,10 @@ test('request and offered catalog remain data in prompt templates',async()=>{
   assert.ok(!messages[0].content.includes('{question}'));
   assert.ok(messages.some(message=>message.content.includes('raised eyebrow')));
 });
+
+test('expanded catalog supports 128 unique shows and rejects 129',()=>{
+ const shows=Array.from({length:128},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'late-night'}));
+ assert.equal(parseChannelRequest({...base,shows:JSON.stringify(shows)}).shows.length,128);
+ shows.push({id:'excess',title:'Excess',channel:'late-night'});
+ assert.throws(()=>parseChannelRequest({...base,shows:JSON.stringify(shows)}));
+});

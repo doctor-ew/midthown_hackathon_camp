@@ -23,7 +23,7 @@ export function parseChannelRequest(body: {question?: string; host?: string; sho
   if (!body.question?.trim() || body.question.length > 1000 || !body.host || !Object.prototype.hasOwnProperty.call(CHANNEL_HOSTS, body.host)) throw new Error('Invalid channel request.');
   let offered: unknown;
   try { offered = JSON.parse(body.shows || ''); } catch { throw new Error('Invalid show selection.'); }
-  if (!Array.isArray(offered) || offered.length < 1 || offered.length > 100) throw new Error('Offer between 1 and 100 available shows.');
+  if (!Array.isArray(offered) || offered.length < 1 || offered.length > 128) throw new Error('Offer between 1 and 128 available shows.');
   const ids = new Set<string>();
   for (const show of offered) {
     if (!record(show) || !exact(show, ['id', 'title', 'channel']) || !clean(show.id, 64) || !/^[a-z0-9][a-z0-9-]*$/.test(show.id) || !clean(show.title, 100) || !clean(show.channel, 32) || ids.has(show.id)) throw new Error('Invalid show selection.');
