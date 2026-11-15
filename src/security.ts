@@ -67,9 +67,9 @@ export function responseHeaders(event: APIGatewayProxyEvent, origins: string[]):
   if (origins.includes(origin)) headers["Access-Control-Allow-Origin"] = origin;
   return headers;
 }
-function parseBody(event: APIGatewayProxyEvent, caps: Record<string, number>): Body {
+function parseBody(event: APIGatewayProxyEvent, caps: Record<string, number>, maxBytes = 16384): Body {
   if (event.httpMethod !== "POST") throw new PublicError(405, "Method not allowed.");
-  if (event.isBase64Encoded || !event.body || Buffer.byteLength(event.body, "utf8") > 16384) {
+  if (event.isBase64Encoded || !event.body || Buffer.byteLength(event.body, "utf8") > maxBytes) {
     throw new PublicError(400, "Invalid request.");
   }
   const contentType = Object.entries(event.headers || {}).find(([key]) => key.toLowerCase() === "content-type")?.[1] || "";
@@ -88,7 +88,8 @@ export function routeOf(event: APIGatewayProxyEvent): string {
 export function parseRequest(event: APIGatewayProxyEvent): { action: Action; body: Body } {
   const action = routeOf(event);
   if (!(ACTIONS as readonly string[]).includes(action)) throw new PublicError(404, "Not found.");
-  const body = parseBody(event, {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048, mode: 16, host: 16, shows: 12000});
+  const body = parseBody(event, {question: 4000, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048, mode: 16, host: 16, shows: 20000}, 32768);
+  if (body.mode !== "channel" && Buffer.byteLength(event.body || "", "utf8") > 16384) throw new PublicError(400, "Invalid request.");
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (body.mode !== undefined || body.host !== undefined || body.shows !== undefined) {
     if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");

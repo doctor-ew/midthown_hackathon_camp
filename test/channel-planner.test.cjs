@@ -54,3 +54,15 @@ test('expanded real-world offer count passes route validation within existing by
  const shows=Array.from({length:130},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'scifi'}));
  assert.equal(parseRequest(event({...base,shows:JSON.stringify(shows)})).body.mode,'channel');
 });
+
+
+test('large valid catalog offers fit the channel envelope while other request limits remain bounded',()=>{
+ const shows=Array.from({length:220},(_,i)=>({id:'expanded-show-'+i,title:'Original era television series '+i,channel:'scifi'}));
+ const request=event({...base,shows:JSON.stringify(shows)});
+ assert.ok(Buffer.byteLength(request.body)>16384);
+ assert.equal(parseRequest(request).body.mode,'channel');
+ assert.throws(()=>parseRequest({...request,body:request.body+' '.repeat(32769)}),{statusCode:400});
+ assert.throws(()=>parseRequest(event({...base,shows:'x'.repeat(20001)})),{statusCode:400});
+ const chat=event({question:'Hi',personality:'benson',sessionToken:'placeholder'});
+ assert.throws(()=>parseRequest({...chat,body:chat.body+' '.repeat(17000)}),{statusCode:400});
+});
