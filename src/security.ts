@@ -1,3 +1,4 @@
+import { isBuddyPersonality } from './buddySafety';
 import { parseChannelRequest } from "./channelPlanner";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { request } from "https";
@@ -92,8 +93,12 @@ export function parseRequest(event: APIGatewayProxyEvent): { action: Action; bod
   if (body.mode !== "channel" && Buffer.byteLength(event.body || "", "utf8") > 16384) throw new PublicError(400, "Invalid request.");
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (body.mode !== undefined || body.host !== undefined || body.shows !== undefined) {
-    if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");
-    try { parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
+    if (body.mode === "buddy") {
+      if (action !== "chatbot" || !isBuddyPersonality(body.personality) || body.host !== undefined || body.shows !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid buddy request.");
+    } else {
+      if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");
+      try { parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
+    }
   }
   if (action === "foxtrot") {
     if (!body.programmingLanguage?.trim()) throw new PublicError(400, "Choose a programming language.");

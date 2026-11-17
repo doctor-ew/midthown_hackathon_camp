@@ -1,3 +1,4 @@
+import { buddyPrompt, safeBuddyReply } from './buddySafety';
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
@@ -143,6 +144,10 @@ export const handler = async (
       try { plan = parseChannelPlan(text, request); }
       catch { throw new PublicError(503, "The host sent an invalid lineup. Please try again."); }
       return {statusCode: 200, headers, body: JSON.stringify({plan})};
+    }
+    if (requestBody.mode === "buddy") {
+      const answer = await safeBuddyReply(requestBody.question || "", () => buddyPrompt(requestBody.personality || "").pipe(model()).pipe(new StringOutputParser()).invoke({question:requestBody.question}));
+      return {statusCode:200,headers,body:JSON.stringify({answer})};
     }
     const userQuestion = requestBody.question || "";
     const targetLanguage = requestBody.language || "Spanish";
