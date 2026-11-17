@@ -66,3 +66,21 @@ test('large valid catalog offers fit the channel envelope while other request li
  const chat=event({question:'Hi',personality:'benson',sessionToken:'placeholder'});
  assert.throws(()=>parseRequest({...chat,body:chat.body+' '.repeat(17000)}),{statusCode:400});
 });
+
+test('onboard buddy hosts have matching chat identities and distinct delivery without widening request policy',async()=>{
+ const personalities=require('../dist/src/config/personalityMatrix').default;
+ const expected={horshack:'Arnold Horshack',fonz:'Arthur Fonzarelli',revjim:'Reverend Jim Ignatowski',mrsgarrett:'Edna Garrett',mrmagoo:'Mr. Magoo',kitt:'KITT',docbrown:'Doc',statlerwaldorf:'Statler',qbert:'Q-Bert',skeletor:'Skeletor'};
+ assert.equal(Object.keys(CHANNEL_HOSTS).length,18);
+ for(const[host,name]of Object.entries(expected)){
+  assert.ok(host.length<=16);
+  assert.equal(typeof personalities[host],'string');
+  const request=parseChannelRequest({...base,host});
+  const messages=await channelPrompt(request).formatMessages({request:request.question,catalog:JSON.stringify(request.shows)});
+  assert.ok(messages[0].content.toLowerCase().includes(name.toLowerCase()),host);
+  assert.ok(!messages[0].content.includes('{question}'),host);
+  assert.equal(typeof messages[1].content,'string');
+  assert.ok(messages[1].content.length>50,host);
+  assert.equal(parseRequest(event({...base,host})).body.host,host);
+ }
+ for(const host of ['unknown-buddy','__proto__','constructor'])assert.throws(()=>parseChannelRequest({...base,host}));
+});
