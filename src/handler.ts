@@ -1,5 +1,6 @@
-import { buddyPrompt, safeBuddyReply } from './buddySafety';
-import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import {EpisodeRetrieval, retrieveEpisodes, retrievalContext, responseBudget} from './episodeRetrieval';
+import { buddyPrompt, safeBuddyReply, moderateBuddy } from './buddySafety';
+import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -126,8 +127,9 @@ async function getFoxtrotCode(language: string): Promise<string> {
 }
 
 export const handler = async (
-  event: APIGatewayProxyEvent
+  event: APIGatewayProxyEvent, context?: Context
 ): Promise<APIGatewayProxyResult> => {
+  const remaining = responseBudget(context?.getRemainingTimeInMillis());
   let headers: Record<string, string> = {"Content-Type": "application/json", "Cache-Control": "no-store"};
   try {
     const config = configuration();
@@ -146,8 +148,22 @@ export const handler = async (
       return {statusCode: 200, headers, body: JSON.stringify({plan})};
     }
     if (requestBody.mode === "buddy") {
-      const answer = await safeBuddyReply(requestBody.question || "", () => buddyPrompt(requestBody.personality || "").pipe(model()).pipe(new StringOutputParser()).invoke({question:requestBody.question}));
-      return {statusCode:200,headers,body:JSON.stringify({answer})};
+      let retrieval: EpisodeRetrieval | undefined;
+      const answer = await safeBuddyReply(requestBody.question || "", async () => {
+        if(requestBody.retrievalQuery){
+          if(remaining(8000)<500)return 'Episode-summary search is temporarily unavailable. Please try again.';
+          retrieval=await retrieveEpisodes(requestBody.retrievalQuery, undefined, Math.min(12000,remaining(8000)));
+          if(retrieval.status!=='ok')return retrieval.notice;
+          if(!retrieval.results.length)return 'I could not find a supported match in the episode summaries searched so far. Try a show name or another plot detail. No episode has been selected.';
+        }
+        if(retrieval && remaining(7000)<500)return 'I found possible episode matches below, but could not finish my commentary in time.';
+        return buddyPrompt(requestBody.personality || "",retrieval ? retrievalContext(retrieval) : undefined).pipe(retrieval ? model().bind({signal: AbortSignal.timeout(Math.max(1,Math.min(6000,remaining(7000)))), options: {timeout: Math.max(1,Math.min(6000,remaining(7000))), maxRetries: 0}}) : model()).pipe(new StringOutputParser()).invoke({question:requestBody.question});
+      }, requestBody.retrievalQuery ? async text => {
+        const budget=Math.min(6000,remaining(500));
+        if(budget<100)throw Error('Response deadline reached');
+        return moderateBuddy(text,budget);
+      } : undefined, () => { retrieval = undefined; });
+      return {statusCode:200,headers,body:JSON.stringify({answer,...(retrieval ? {retrieval} : {})})};
     }
     const userQuestion = requestBody.question || "";
     const targetLanguage = requestBody.language || "Spanish";

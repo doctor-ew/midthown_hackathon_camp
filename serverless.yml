@@ -5,6 +5,7 @@ provider:
   runtime: nodejs24.x
   environment:
     OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+    EPISODE_RETRIEVAL_FUNCTION: yata-episode-retrieval-pilot-search
     OPENAI_MODEL: ${env:OPENAI_MODEL, 'gpt-4o'}
     TURNSTILE_SECRET_KEY: ${env:TURNSTILE_SECRET_KEY}
     TURNSTILE_HOSTNAMES: ${env:TURNSTILE_HOSTNAMES, 'doctorew.com,www.doctorew.com'}
@@ -21,6 +22,9 @@ provider:
   iam:
     role:
       statements:
+        - Effect: Allow
+          Action: lambda:InvokeFunction
+          Resource: arn:aws:lambda:us-east-1:432230020714:function:yata-episode-retrieval-pilot-search
         - Effect: Allow
           Action:
             - dynamodb:PutItem
