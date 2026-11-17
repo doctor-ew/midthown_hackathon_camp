@@ -48,9 +48,9 @@ test('transaction cancellation rejects replay/quota without proceeding', async (
 });
 test('atomic quota transaction contains replay and all global/IP limits', () => {
   const tx = quotaTransaction(config, 'one-use-token', '192.0.2.1', new Date('2026-11-13T12:00:00Z'));
-  assert.equal(tx.TransactItems.length, 4);
+  assert.equal(tx.TransactItems.length, 5);
   assert.equal(tx.TransactItems[0].Put.ConditionExpression, 'attribute_not_exists(pk)');
-  assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':cap']), [300, 2000, 60]);
+  assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':cap']), [300, 2000, 60, 10]);
   assert.deepEqual(tx.TransactItems.slice(1, 3).map(x => x.Update.Key.pk), ['day:2026-11-13', 'month:2026-11']);
   assert.ok(!JSON.stringify(tx).includes('one-use-token'));
   assert.ok(!JSON.stringify(tx).includes('192.0.2.1'));
@@ -200,9 +200,9 @@ for (const action of ACTIONS) {
     assert.notEqual(writes[0].TransactItems[0].Put.Item.pk, writes[1].TransactItems[0].Put.Item.pk);
     assert.match(writes[0].TransactItems[0].Put.Item.pk, /^request:/);
     for (const tx of writes) {
-      assert.equal(tx.TransactItems.length, 4);
-      assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':one']), [1, 1, 1]);
-      assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':cap']), [300, 2000, 60]);
+      assert.equal(tx.TransactItems.length, 6);
+      assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':one']), [1, 1, 1, 1, 1]);
+      assert.deepEqual(tx.TransactItems.slice(1).map(x => x.Update.ExpressionAttributeValues[':cap']), [300, 2000, 60, 10, 30]);
     }
   });
   test(`${action}: invalid session cannot reach quota store`, async () => {
@@ -217,7 +217,7 @@ test('reusable grant still stops when any paid-request quota is exhausted', asyn
   const {sessionToken} = createSession(config, 'https://doctorew.com', '192.0.2.1', instant);
   let used = 0;
   const deps = dependencies('page', {transact: async tx => {
-    assert.equal(tx.TransactItems.length, 4);
+    assert.equal(tx.TransactItems.length, 6);
     if (used >= 2) throw Object.assign(new Error('quota'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
     used++;
   }});
@@ -322,4 +322,43 @@ test('character replies remove the unwanted Ah opening without changing ordinary
  assert.equal(normalizeCharacterReply(' Ah, the monkeys again.'),'the monkeys again.');
  assert.equal(normalizeCharacterReply('Ah yes, Doom sees you.'),'yes, Doom sees you.');
  assert.equal(normalizeCharacterReply('Ahead of schedule.'),'Ahead of schedule.');
+});
+
+
+test('emergency stop rejects sessions and inference before external work', async () => {
+  const deps = dependencies('page', {verify: async () => assert.fail('verification must not run'), transact: async () => assert.fail('storage must not run')});
+  for (const value of ['false', '', 'TRUE', 'invalid']) {
+    const stopped = {...config, ...configuration({AI_ENABLED: value}), secret: config.secret, table: config.table};
+    await assert.rejects(authorize(event(), stopped, deps), {statusCode: 503});
+    await assert.rejects(bootstrapSession(pageEvent(), stopped, deps), {statusCode: 503});
+  }
+});
+test('session allowance is shared across actions and independent across grants', async () => {
+  const counts = new Map();
+  const limited = {...config, sessionLimit: 2, minuteIpLimit: 10};
+  const deps = dependencies('page', {transact: async tx => {
+    const updates = tx.TransactItems.filter(x => x.Update).map(x => x.Update);
+    if (updates.some(x => (counts.get(x.Key.pk) || 0) >= x.ExpressionAttributeValues[':cap'])) {
+      throw Object.assign(new Error('quota'), {name: 'TransactionCanceledException', CancellationReasons: [{Code: 'ConditionalCheckFailed'}]});
+    }
+    for (const x of updates) counts.set(x.Key.pk, (counts.get(x.Key.pk) || 0) + 1);
+  }});
+  const a = createSession(config, 'https://doctorew.com', '192.0.2.1', instant).sessionToken;
+  const b = createSession(config, 'https://doctorew.com', '192.0.2.1', instant).sessionToken;
+  await authorize(sessionEvent(a), limited, deps);
+  await authorize(sessionEvent(a, 'translation'), limited, deps);
+  await assert.rejects(authorize(sessionEvent(a), limited, deps), {statusCode: 429});
+  await authorize(sessionEvent(b), limited, deps);
+  assert.equal(counts.get('day:2026-11-13'), 3);
+  assert.ok(!JSON.stringify([...counts]).includes(a));
+});
+test('minute quota spans sessions and direct challenges', async () => {
+  const tx = quotaTransaction(config, 'receipt', '192.0.2.1', instant, 'request', 'private-session');
+  const next = quotaTransaction(config, 'other', '192.0.2.1', instant);
+  assert.equal(tx.TransactItems[4].Update.Key.pk, next.TransactItems[4].Update.Key.pk);
+  assert.notEqual(tx.TransactItems[4].Update.Key.pk, quotaTransaction(config, 'other', '192.0.2.1', new Date(instant.getTime()+60000)).TransactItems[4].Update.Key.pk);
+  assert.ok(!JSON.stringify(tx).includes('private-session'));
+  for (const key of ['AI_SESSION_LIMIT', 'AI_MINUTE_IP_LIMIT']) {
+    for (const value of ['0', '-1', 'nope', '1.5']) assert.throws(() => configuration({[key]: value}), {statusCode: 503});
+  }
 });

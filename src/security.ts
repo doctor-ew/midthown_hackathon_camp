@@ -19,6 +19,9 @@ export interface GuardConfig {
   dailyLimit: number;
   monthlyLimit: number;
   hourlyIpLimit: number;
+  sessionLimit: number;
+  minuteIpLimit: number;
+  enabled: boolean;
 }
 export interface Body {
   mode?: string;
@@ -54,6 +57,9 @@ export function configuration(env = process.env): GuardConfig {
     dailyLimit: limit(env.AI_DAILY_LIMIT, 300),
     monthlyLimit: limit(env.AI_MONTHLY_LIMIT, 2000),
     hourlyIpLimit: limit(env.AI_HOURLY_IP_LIMIT, 60),
+    sessionLimit: limit(env.AI_SESSION_LIMIT, 30),
+    minuteIpLimit: limit(env.AI_MINUTE_IP_LIMIT, 10),
+    enabled: env.AI_ENABLED === undefined || env.AI_ENABLED === "true",
   };
 }
 export function originOf(event: APIGatewayProxyEvent): string {
@@ -127,7 +133,7 @@ export function verifyToken(secret: string, token: string, ip: string): Promise<
     req.end(data);
   });
 }
-export function quotaTransaction(config: GuardConfig, token: string, ip: string, now: Date, receiptKind = "token"): TransactWriteCommandInput {
+export function quotaTransaction(config: GuardConfig, token: string, ip: string, now: Date, receiptKind = "token", sessionToken?: string): TransactWriteCommandInput {
   const epoch = Math.floor(now.getTime() / 1000);
   const date = now.toISOString();
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -137,6 +143,11 @@ export function quotaTransaction(config: GuardConfig, token: string, ip: string,
     {pk: `month:${date.slice(0, 7)}`, cap: config.monthlyLimit, ttl: epoch + 5616000},
     {pk: `ip:${date.slice(0, 13)}:${ipHash}`, cap: config.hourlyIpLimit, ttl: epoch + 7200},
   ];
+  counters.push({pk: `minute:${date.slice(0, 16)}:${ipHash}`, cap: config.minuteIpLimit, ttl: epoch + 120});
+  if (sessionToken) {
+    const sessionHash = createHmac("sha256", config.secret).update(sessionToken).digest("hex");
+    counters.push({pk: `session:${sessionHash}`, cap: config.sessionLimit, ttl: epoch + 3600});
+  }
   return {TransactItems: [
     {Put: {TableName: config.table, Item: {pk: `${receiptKind}:${tokenHash}`, expiresAt: epoch + 600}, ConditionExpression: "attribute_not_exists(pk)"}},
     ...counters.map(counter => ({Update: {
@@ -157,7 +168,7 @@ const defaultDependencies: GuardDependencies = {
   }, now: () => new Date(),
 };
 function requestContext(event: APIGatewayProxyEvent, config: GuardConfig): {origin: string; ip: string} {
-  if (!config.secret || !config.table || !config.hostnames.length || !config.origins.length) throw new PublicError(503, "AI demos are temporarily unavailable.");
+  if (!config.enabled || !config.secret || !config.table || !config.hostnames.length || !config.origins.length) throw new PublicError(503, "AI demos are temporarily unavailable.");
   const origin = originOf(event);
   if (!config.origins.includes(origin)) throw new PublicError(403, "This origin is not allowed.");
   const ip = event.requestContext?.identity?.sourceIp;
@@ -266,7 +277,7 @@ export async function authorize(event: APIGatewayProxyEvent, config: GuardConfig
     await verifyChallenge(config, parsed.body.turnstileToken || "", ip, parsed.action, deps);
     receipt = parsed.body.turnstileToken || "";
   }
-  try { await transactWithConflictRetry(quotaTransaction(config, receipt, ip, now, receiptKind), deps); }
+  try { await transactWithConflictRetry(quotaTransaction(config, receipt, ip, now, receiptKind, parsed.body.sessionToken), deps); }
   catch (error) {
     if (conditionFailed(error)) throw new PublicError(429, "This demo has reached its usage limit, or this verification was already used. Please try again later.");
     throw new PublicError(503, "AI demos are temporarily unavailable.");

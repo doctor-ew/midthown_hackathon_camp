@@ -11,6 +11,9 @@ provider:
     AI_ALLOWED_ORIGINS: ${env:AI_ALLOWED_ORIGINS, 'https://doctorew.com,https://www.doctorew.com'}
     AI_GUARD_TABLE:
       Ref: AiGuardTable
+    AI_ENABLED: ${env:AI_ENABLED, 'true'}
+    AI_SESSION_LIMIT: ${env:AI_SESSION_LIMIT, '30'}
+    AI_MINUTE_IP_LIMIT: ${env:AI_MINUTE_IP_LIMIT, '10'}
     AI_DAILY_LIMIT: ${env:AI_DAILY_LIMIT, '300'}
     AI_MONTHLY_LIMIT: ${env:AI_MONTHLY_LIMIT, '2000'}
     AI_HOURLY_IP_LIMIT: ${env:AI_HOURLY_IP_LIMIT, '60'}
