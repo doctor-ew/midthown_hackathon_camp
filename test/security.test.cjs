@@ -362,3 +362,17 @@ test('minute quota spans sessions and direct challenges', async () => {
     for (const value of ['0', '-1', 'nope', '1.5']) assert.throws(() => configuration({[key]: value}), {statusCode: 503});
   }
 });
+
+test('guard startup does not require optional buddy or channel modules in older packages', () => {
+  const {execFileSync} = require('node:child_process');
+  execFileSync(process.execPath, ['-e', `
+    const Module = require('node:module');
+    const original = Module._load;
+    Module._load = function(id, ...args) {
+      if (/buddySafety|channelPlanner/.test(id)) throw new Error('optional package unavailable');
+      return original.call(this, id, ...args);
+    };
+    const guard = require('./dist/src/security');
+    if (!guard.configuration({}).enabled) process.exit(1);
+  `], {cwd: require('node:path').resolve(__dirname, '..')});
+});

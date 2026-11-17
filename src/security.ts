@@ -1,5 +1,3 @@
-import { isBuddyPersonality } from './buddySafety';
-import { parseChannelRequest } from "./channelPlanner";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { request } from "https";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -100,10 +98,10 @@ export function parseRequest(event: APIGatewayProxyEvent): { action: Action; bod
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (body.mode !== undefined || body.host !== undefined || body.shows !== undefined) {
     if (body.mode === "buddy") {
-      if (action !== "chatbot" || !isBuddyPersonality(body.personality) || body.host !== undefined || body.shows !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid buddy request.");
+      if (action !== "chatbot" || !require("./buddySafety").isBuddyPersonality(body.personality) || body.host !== undefined || body.shows !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid buddy request.");
     } else {
       if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");
-      try { parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
+      try { require("./channelPlanner").parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
     }
   }
   if (action === "foxtrot") {
