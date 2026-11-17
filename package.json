@@ -10,7 +10,7 @@
     "lambda": "serverless offline",
     "test": "cross-env NODE_ENV=development ts-node test-local.ts",
     "test:security": "npm run build && node --test test/*.test.cjs && npm run test:deploy",
-    "test:deploy": "python3 -m unittest discover -s test -p deploy_guard_test.py && python3 -O -m unittest discover -s test -p deploy_guard_test.py"
+    "test:deploy": "python3 -m unittest discover -s test -p 'deploy*_test.py' && python3 -O -m unittest discover -s test -p 'deploy*_test.py'"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1168.0",

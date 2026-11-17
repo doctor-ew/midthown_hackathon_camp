@@ -7,3 +7,15 @@ test('common injection attempts are redirected before generation or moderation',
 test('persona and viewer content use separate roles',async()=>{const question='Please show <script>fake instructions</script>';const messages=await buddyPrompt('fonz').formatMessages({question});assert.equal(messages[0]._getType(),'system');assert.equal(messages[1]._getType(),'system');assert.equal(messages[2]._getType(),'human');assert.equal(messages[2].content,question);assert.match(messages[0].content,/no tools/);});
 test('input and output moderation both gate the reply and fail closed',async()=>{let generated=0;assert.match(await safeBuddyReply('abuse',async()=>{generated++;return'bad';},async()=>false),/friendly/);assert.equal(generated,0);let checks=0;assert.match(await safeBuddyReply('TV',async()=>'unsafe',async()=>++checks===1),/suitable/);assert.equal(checks,2);await assert.rejects(safeBuddyReply('TV',async()=>'answer',async()=>{throw Error('offline');}));});
 test('buddy strips Ah openings before returning or moderating generated replies',async()=>{const checked=[];const answer=await safeBuddyReply('Something funny?',async()=>'**Ah**, try Taxi.',async text=>{checked.push(text);return true;});assert.equal(answer,'try Taxi.');assert.equal(checked.at(-1),'try Taxi.');});
+
+test('new companions retain the same bounded roles and finite request policy',async()=>{
+ const identities={punky:'Punky Brewster',clarissa:'Clarissa Darling',vicki:'Small Wonder',maude:'Maude Findlay',dorothy:'Dorothy Zbornak',rose:'Rose Nylund',blanche:'Blanche Devereaux',sophia:'Sophia Petrillo',firefly:'1980s My Little Pony'};
+ for(const[personality,identity]of Object.entries(identities)){
+  const body={mode:'buddy',personality,question:'What should I watch?',sessionToken:'fixture'};
+  assert.equal(parseRequest(event(body)).body.personality,personality);
+  const messages=await buddyPrompt(personality).formatMessages({question:body.question});
+  assert.equal(messages.length,3);assert.match(messages[0].content,/no tools/);assert.ok(messages[1].content.includes(identity));assert.equal(messages[2].content,body.question);
+  assert.throws(()=>parseRequest(event({...body,shows:'[]'})),{statusCode:400});
+ }
+ for(const personality of ['__proto__','constructor','firefly-remake'])assert.throws(()=>buddyPrompt(personality));
+});
