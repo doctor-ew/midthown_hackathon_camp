@@ -69,8 +69,8 @@ test('large valid catalog offers fit the channel envelope while other request li
 
 test('onboard buddy hosts have matching chat identities and distinct delivery without widening request policy',async()=>{
  const personalities=require('../dist/src/config/personalityMatrix').default;
- const expected={horshack:'Arnold Horshack',fonz:'Arthur Fonzarelli',revjim:'Reverend Jim Ignatowski',mrsgarrett:'Edna Garrett',mrmagoo:'Mr. Magoo',kitt:'KITT',docbrown:'Doc',statlerwaldorf:'Statler',qbert:'Q-Bert',skeletor:'Skeletor',scooter:'Scooter',robin:'Robin',mastershake:'Master Shake',orko:'Orko',penny:'Penny',gadget:'Inspector Gadget',velma:'Velma'};
- assert.equal(Object.keys(CHANNEL_HOSTS).length,25);
+ const expected={horshack:'Arnold Horshack',fonz:'Arthur Fonzarelli',revjim:'Reverend Jim Ignatowski',mrsgarrett:'Edna Garrett',mrmagoo:'Mr. Magoo',kitt:'KITT',docbrown:'Doc',statlerwaldorf:'Statler',qbert:'Q-Bert',skeletor:'Skeletor',scooter:'Scooter',robin:'Robin',mastershake:'Master Shake',orko:'Orko',penny:'Penny',gadget:'Inspector Gadget',velma:'Velma',strawberry:'Strawberry Shortcake',jem:'Jem',shera:'She-Ra',kermit:'Kermit',mspiggy:'Miss Piggy',gonzo:'Gonzo'};
+ assert.equal(Object.keys(CHANNEL_HOSTS).length,31);
  for(const[host,name]of Object.entries(expected)){
   assert.ok(host.length<=16);
   assert.equal(typeof personalities[host],'string');
