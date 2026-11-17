@@ -3,7 +3,7 @@ import personalities from "./personalityMatrix";
 
 const openingRule = 'Never begin a reply with Ah, Aah, or an Ah-prefixed greeting. Start directly with a character-specific observation or answer.';
 export function normalizeCharacterReply(text: string): string {
-  return text.trim().replace(/^(?:ah|aah)\b[\s,!.:;—–-]*/i, '').trimStart();
+  return text.trim().replace(/^[\s"'“”‘’*_`]*a+h+\b[\s"'“”‘’*_`,!.:;…—–-]*/i, '').trimStart();
 }
 
 export function buildChatPrompt(personality: string): ChatPromptTemplate {

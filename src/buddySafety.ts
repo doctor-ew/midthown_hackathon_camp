@@ -1,3 +1,4 @@
+import { normalizeCharacterReply } from './config/chatPrompt';
 import { request } from 'https';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import personalities from './config/personalityMatrix';
@@ -32,7 +33,7 @@ export async function moderateBuddy(text: string): Promise<boolean> {
 export async function safeBuddyReply(question: string, generate:()=>Promise<string>, moderate=moderateBuddy): Promise<string> {
   if (injectionAttempt(question)) return 'I can help with television, YATA controls, or a request for Drew. What would you like to watch?';
   if (!await moderate(question)) return 'Let’s keep this friendly. I can help you pick a show or report a problem with YATA.';
-  const answer = await generate();
+  const answer = normalizeCharacterReply(await generate());
   if (!answer.trim() || answer.length>12000 || !await moderate(answer)) return 'I couldn’t give a suitable reply that time. Try asking about a show or YATA.';
   return answer;
 }
