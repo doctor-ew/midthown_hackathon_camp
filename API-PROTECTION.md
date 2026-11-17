@@ -2,7 +2,7 @@
 
 ## Status
 
-The first implementation adds per-session inference allowances, fixed-window per-IP minute limits, and an emergency stop. These changes require deployment; source defaults do not establish production configuration.
+The first implementation adds per-session inference allowances, fixed-window per-IP minute limits, and an emergency stop. The runtime guard was deployed and negative-tested on 2026-11-17. Deployment-tool repairs were subsequently reviewed offline; they do not change the running API. Compiled defaults supply the deployed session and minute allowances; existing global/hourly environment settings were preserved.
 
 ## Request controls
 
@@ -38,3 +38,9 @@ Public catalog reads remain separate from paid inference authorization. Administ
 ## Validation
 
 npm run test:security builds TypeScript and runs the security suite. Tests cover emergency denial before external work, shared action allowances, independent grants, transactional failure behavior, minute windows, replay, malformed requests, expired grants, and storage outages. These are local tests; they do not establish production enforcement or real DynamoDB concurrency behavior.
+
+## Deployment-tool review resolution
+
+The tool always fetches the current archive and binds its verified hash to the same lookup as its optimistic revision. Rollback archives are immutable, separate snapshots inside a fresh private run directory; they never become release preimages. Existing permissive backup directories and symlink targets are rejected. Safety checks use explicit failures, including under optimized Python.
+
+Rollout is sequential with the session function first. Each function must initialize and deny missing verification before continuing. Failure reconciles attempted mutations, including an accepted update with a lost response. Recovery restores only the known postimage, checks revisions, and verifies restored denial behavior. Foreign concurrent releases and uncertain rollback outcomes require attention instead of a false success report. Negative smoke checks establish startup and verification denial, not successful paid inference or full application behavior.

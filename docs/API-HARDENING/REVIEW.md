@@ -2,63 +2,57 @@
 
 **Task:** API-HARDENING
 **Date:** 2026-11-17
-**Mode:** post-impl
-**Scope:** 8 implementation/documentation files, ace8123..8460a47
-**Reviewer:** Codex active runtime plus independent fresh Codex adversarial reviewer
-**Contract:** Retrospective SPEC.md; not a pre-implementation spec-adversarial approval.
-**TDD integrity:** SKIPPED — no lock SHAs recorded. Existing passing tests do not establish sealed RED-phase provenance.
+**Mode:** post-implementation repair review
+**Reviewer:** Codex active runtime plus fresh independent adversarial review
+**Contract:** Retrospective SPEC.md; no pre-implementation spec approval or sealed RED-phase provenance is asserted.
 
 ### DRY
 
-No blocking findings. Default values are repeated in deployment configuration and examples; consistency checks would reduce future drift (NOTE, LOW, serverless.yml:18).
+NOTE, LOW: guard default values remain represented in deployment configuration and examples. This is unchanged and nonblocking (serverless.yml:18).
 
 ### SOLID
 
-| Severity | Confidence | Principle | Finding | Location |
-| --- | --- | --- | --- | --- |
-| WARN | HIGH | Dependency isolation | Deployment success checks only infrastructure status/hash; it never invokes the handler or uses a canary, so missing-import failures can pass the release check across all six concurrent targets. The earlier missing-module incident demonstrates this failure mode. | scripts/deploy-security-guard.py:49 |
+No remaining findings in this scope. Preparation, archive patching, private backup writes, health checks and recovery are separate injectable functions.
 
 ### ACID
 
-| Severity | Confidence | Property | Finding | Location |
-| --- | --- | --- | --- | --- |
-| BLOCK | HIGH | Consistency/isolation | Reusing a backup directory patches the cached old archive while obtaining the latest deployed RevisionId. An intervening unrelated release is silently overwritten; optimistic concurrency checks accept the overwrite because they are tied to current metadata rather than the actual package preimage. | scripts/deploy-security-guard.py:25 |
-| WARN | HIGH | Confidentiality/durability | Existing backup directories/files retain existing permissions and symlinks are followed. umask and mkdir(mode=0700,exist_ok=True) do not secure an existing permissive directory or existing files before secret-bearing configuration is written. | scripts/deploy-security-guard.py:18 |
+No remaining blocking findings. prepare fetches current deployed bytes and verifies their hash against the same function lookup as the revision (scripts/deploy-security-guard.py:63). Backup snapshots never become deployment inputs. Exclusive private writes and fresh run directories prevent stale-cache reuse and ordinary symlink/permissive-directory failures (scripts/deploy-security-guard.py:31).
 
-Quota transaction review found no concrete introduced bypass: session validation precedes the session counter; minute, session, global and hourly counters share the replay receipt's conditional transaction. The session counter lifetime exceeds the grant lifetime. Per-session renewal, legacy direct challenges, shared-IP fairness and fixed-window boundaries are documented limitations rather than an installation/account guarantee.
+Attempted mutations are tracked before the remote call; ambiguous failures reconcile stable package state before recovery (scripts/deploy-security-guard.py:111). Recovery restores known postimages with revision checks, preserves foreign releases and reports unresolved outcomes conservatively (scripts/deploy-security-guard.py:122).
 
 ### CoC
 
-| Severity | Confidence | Finding | Location |
-| --- | --- | --- | --- |
-| WARN | HIGH | Production account, runtime, package-presence and hash checks use Python assert; optimized Python removes these safety checks. Use explicit exceptions and test the optimized invocation. | scripts/deploy-security-guard.py:14 |
+No remaining findings. Explicit checks replace removable assertions (scripts/deploy-security-guard.py:22).
 
 ### Big O
 
-No findings. Request size and transaction item count remain bounded. The deployment loop covers six known functions outside the request hot path.
+No findings. Six known functions are processed sequentially outside the application request path. Archive memory use remains proportional to the deployed package sizes.
 
 ### LLM Trust Boundary
 
-No introduced model-to-execution, SQL, redirect or HTML path found. Conditional require targets are fixed literals, not caller-controlled module names. Optional modules are reached only by the supported mode branches. Existing external moderation, accounts and model provider boundaries require their separate reviews.
+No introduced user/model-controlled execution path. Canary requests contain no user prompt or credentials and cannot authorize paid inference. This review does not establish native attestation, account identity or currency budgets.
+
+### Repair history
+
+1. Initial review: one BLOCK and three WARNs. Preserved verbatim in REVIEW-INITIAL.md.
+2. First repair review: original findings repaired; independent reviewer reproduced a new BLOCK where an accepted update with a lost response escaped recovery and caused a false restoration message.
+3. Second repair: track the attempt before the call, reconcile hashes and stable status, then verify restoration or report attention. Added the lost-response regression.
+4. Independent reviewer reran all 11 deployment regressions and approved the latest implementation with no remaining blocking findings.
 
 ### Evidence
 
-- npm run test:security: 66 passed, 0 failed. All verification/quota dependencies in this suite are isolated; no paid inference was performed.
-- Offline deployment reproduction: six cached archives contain OLD handler; mocked deployed metadata contains NEW handler and current revision; all six outgoing archives contain OLD handler and the script reports Successful. No AWS calls were made.
-- Python AST identifies assertions at lines 14, 23, 28, 30 and 51; these are removable under optimized execution.
-- Independent reviewer confirmed the cached-preimage BLOCK and missing runtime health checks, and found no concrete new quota bypass.
-- Native attestation, account/installation budgets and exact spending ceilings remain unimplemented. Existing dependency advisories are tracked separately in DEPENDENCY-SECURITY-REVIEW.md and are not evidence of an exploited path.
+npm run test:security passes 66 JavaScript security tests and all 11 offline deployment tests in both normal and optimized Python. Deployment regressions use fake AWS clients and no network or paid inference. Cases cover stale backups, private/exclusive backups, symlinks, hash mismatch, optimization, sequential canaries, health rollback, stale revisions, concurrent foreign releases and accepted-update/lost-response recovery.
 
 ### Summary
 
-- BLOCK: 1 (HIGH: 1, MEDIUM: 0)
-- WARN: 3
+- BLOCK: 0
+- WARN: 0
 - NOTE: 1
 
-### Trend (vs last run)
+### Trend
 
-First review for API-HARDENING — no prior review delta.
+Initial review: BLOCK 1 / WARN 3 / NOTE 1. Final repair review: BLOCK 0 / WARN 0 / NOTE 1. The intermediate lost-response blocker was retained in this repair history and covered by a regression.
 
 ### Verdict
 
-REQUEST CHANGES. The deployment tool must always patch a freshly fetched, verified deployed archive, keep rollback snapshots separate and immutable, and bind its optimistic revision to that preimage. Resolve the release-health, explicit-validation and private-backup warnings before reuse. Do not treat this review as approval to redeploy. Production was not changed during this review.
+APPROVE for the deployment-tool repair scope. No production resources changed during repair or review. The smoke check establishes startup and verification denial, not authenticated inference or full web/mobile behavior. Backup ancestry assumes the operator's trusted filesystem; hostile replacement of trusted ancestor directories is outside the current tool threat model. Native attestation, exact spending controls and dependency remediation remain open before store readiness.
