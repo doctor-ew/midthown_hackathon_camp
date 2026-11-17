@@ -26,6 +26,9 @@ Successful AI responses remain `{ "answer": "..." }`. Other rejected requests re
 | `TURNSTILE_HOSTNAMES` | `doctorew.com,www.doctorew.com` |
 | `AI_ALLOWED_ORIGINS` | `https://doctorew.com,https://www.doctorew.com` |
 | `AI_GUARD_TABLE` | CloudFormation table reference; required |
+| `AI_ENABLED` | `true`; other supplied values stop new grants and inference |
+| `AI_SESSION_LIMIT` | `30` requests per signed session |
+| `AI_MINUTE_IP_LIMIT` | `10` requests per IP per UTC minute |
 | `AI_DAILY_LIMIT` | `300` requests, UTC calendar day |
 | `AI_MONTHLY_LIMIT` | `2000` requests, UTC calendar month |
 | `AI_HOURLY_IP_LIMIT` | `60` requests, UTC calendar hour and source IP |
@@ -34,7 +37,7 @@ Use a production Turnstile widget restricted to the configured hostnames. The pu
 
 The table uses a string partition key `pk` and TTL attribute `expiresAt`. `serverless.yml` creates it with on-demand billing and retains it when the stack is deleted or replaced. The Lambda role allows `dynamodb:PutItem` and `dynamodb:UpdateItem` on that table only, restricted by `dynamodb:EnclosingOperation` to `TransactWriteItems`.
 
-For each paid request, a single DynamoDB transaction stores a unique request receipt and increments daily, monthly and per-IP hourly counters. Session requests use a fresh server-generated nonce for each receipt; they do not reuse the grant digest. Legacy requests use the challenge token digest, preserving single-use enforcement. Each conditional write must succeed before inference begins. No plaintext token or source IP is stored. The IP key uses an HMAC with the Turnstile secret. Failed model calls still consume quota. Counters use calendar windows rather than rolling windows. Keep the table and its counters when deploying, and avoid concurrent old and new handlers that bypass this gate.
+For each paid request, a single DynamoDB transaction stores a unique request receipt and increments daily, monthly, per-IP hourly and per-IP minute counters, plus a per-session counter for signed grants. Session requests use a fresh server-generated nonce for each receipt; they do not reuse the grant digest. Legacy requests use the challenge token digest, preserving single-use enforcement. Each conditional write must succeed before inference begins. No plaintext token or source IP is stored. The IP key uses an HMAC with the Turnstile secret. Failed model calls still consume quota. Counters use calendar windows rather than rolling windows. Keep the table and its counters when deploying, and avoid concurrent old and new handlers that bypass this gate.
 
 ## Limits
 
@@ -73,3 +76,7 @@ Supported hosts are `stubing`, `arnold`, `jabberjaw`, `benson`, `mrt`, `murdock`
 The response contains `plan` with `host`, `title` (at most 80 characters), `intro` (at most 700 characters), and `showIds` (at most 12 unique offered IDs). Empty `showIds` represents no suitable matches and must not start playback. Invalid model output returns a service error; it is never repaired into an invented catalog entry. Responses contain no sources or URLs. Clients must revalidate selected IDs against their current verified, playable catalog and display a review before tuning. Offered descriptors are caller data, not an authoritative server catalog; they confer no publication privileges.
 
 Run `npm run test:security` to build and exercise security and planner contracts. Deployment must include the newly compiled `dist/src/channelPlanner.js` alongside the changed handler, security and personality modules. No additional API Gateway route or Lambda is required.
+
+## Session-budget release
+
+See [API protection implementation](API-PROTECTION.md) for the session and minute limits, emergency-stop semantics, and outstanding attestation and spending controls. The narrowly scoped release command is `python scripts/deploy-security-guard.py --backup-dir PRIVATE_DIRECTORY --apply`, after building and passing security tests. It requires boto3 and AWS credentials. It preserves each deployed archive except `dist/src/security.js`, uses optimistic function revision checks, and retains private rollback archives and configuration. Omit `--apply` to prepare backups without updating functions. Never commit the backup directory; configuration backups contain secrets.
