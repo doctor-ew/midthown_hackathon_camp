@@ -19,3 +19,4 @@ test('new companions retain the same bounded roles and finite request policy',as
  }
  for(const personality of ['__proto__','constructor','firefly-remake'])assert.throws(()=>buddyPrompt(personality));
 });
+test('Junior Brainy and original Drebin use the same finite guarded roles',async()=>{for(const id of ['junior','brainy','drebin']){assert.equal(parseRequest(event({mode:'buddy',personality:id,question:'What should I watch?',sessionToken:'fixture'})).body.personality,id);const messages=await buddyPrompt(id).formatMessages({question:'A TV question'});assert.match(messages[0].content,/no tools/);assert.equal(messages.at(-1).content,'A TV question');}});
