@@ -15,7 +15,7 @@ Welcome to DoctorEw's Lab Lambda Backend! This project leverages AWS Lambda, Lan
 
 ## Introduction
 
-This project is designed to help 8th graders understand the basics of serverless computing and AI integration using AWS Lambda and OpenAI's GPT-4 model. It includes multiple endpoints to interact with AI functionalities like chat, translation, sentiment analysis, and code generation.
+This project is designed to help 8th graders understand the basics of serverless computing and AI integration using AWS Lambda and OpenAI's GPT-4o model. It includes multiple endpoints to interact with AI functionalities like chat, translation, sentiment analysis, and code generation.
 
 ## Features
 

@@ -1,33 +1,38 @@
-import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import {EpisodeRetrieval, retrieveEpisodes, retrievalContext, responseBudget} from './episodeRetrieval';
+import { buddyPrompt, safeBuddyReply, moderateBuddy } from './buddySafety';
+import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { channelPrompt, parseChannelPlan, parseChannelRequest } from "./channelPlanner";
 import * as dotenv from "dotenv";
-import personalities from "./config/personalityMatrix";
+import { buildChatPrompt, buildTranslationPrompt, buildCodePrompt, normalizeCharacterReply } from "./config/chatPrompt";
+import { authorize, bootstrapSession, configuration, PublicError, responseHeaders, routeOf } from "./security";
 
 dotenv.config();
 
-console.log("|-o-| STARTING");
-
-const openai = new ChatOpenAI({
-  modelName: "gpt-4o-mini", //"gpt-4-1106-preview",
-  temperature: 0.8,
-  configuration: {
-    apiKey: process.env.OPENAI_API_KEY,
-  },
-});
+let openai: ChatOpenAI | undefined;
+function model(): ChatOpenAI {
+  if (openai) return openai;
+  openai = new ChatOpenAI({
+    modelName: process.env.OPENAI_MODEL || "gpt-4o",
+    temperature: 0.8,
+    maxTokens: 600,
+    timeout: 25000,
+    maxRetries: 0,
+    configuration: { apiKey: process.env.OPENAI_API_KEY },
+  });
+  return openai;
+}
 
 async function getOpenAIResponse(
   prompt: string,
   personality: string
 ): Promise<string> {
-  const personalityTemplate =
-    personalities[personality] || personalities["skippy"];
-
-  const chatPrompt = ChatPromptTemplate.fromTemplate(personalityTemplate);
+  const chatPrompt = buildChatPrompt(personality);
   const outputParser = new StringOutputParser();
 
-  const chain = chatPrompt.pipe(openai).pipe(outputParser);
+  const chain = chatPrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
     question: prompt,
@@ -38,38 +43,29 @@ async function getOpenAIResponse(
     response += chunk;
   }
 
-  let returnResponse = response.trim();
-
-  console.log(
-    `|-o-| Chat with: ${personality}! 
-    :: prompt: ${prompt}
-    || getOpenAIResponse: returnResponse: ${returnResponse}`
-  );
-
-  return response.trim();
+  return normalizeCharacterReply(response);
 }
 
 async function getTranslation(
   prompt: string,
   targetLanguage: string
 ): Promise<string> {
-  const translationPrompt = ChatPromptTemplate.fromTemplate(
-    `You are a submind of Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series tasked as a translation AI. Translate the following text from English to ${targetLanguage}:\n{question}. However, if you do not know enough about the language in question, respond with wit, sarcasm, and a touch of arrogance like Skippy the Magnificent, the snarky, all-knowing AI from Craig Alanson's Expeditionary Force series.`
-  );
+  const translationPrompt = buildTranslationPrompt();
 
   const outputParser = new StringOutputParser();
 
-  const chain = translationPrompt.pipe(openai).pipe(outputParser);
+  const chain = translationPrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
     question: prompt,
+    language: targetLanguage,
   });
 
   let response = "";
   for await (const chunk of stream) {
     response += chunk;
   }
-  return response.trim();
+  return normalizeCharacterReply(response);
 }
 
 async function getPersonalAssistantResponse(prompt: string): Promise<string> {
@@ -79,7 +75,7 @@ async function getPersonalAssistantResponse(prompt: string): Promise<string> {
 
   const outputParser = new StringOutputParser();
 
-  const chain = assistantPrompt.pipe(openai).pipe(outputParser);
+  const chain = assistantPrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
     question: prompt,
@@ -99,7 +95,7 @@ async function getSentimentAnalysis(prompt: string): Promise<string> {
 
   const outputParser = new StringOutputParser();
 
-  const chain = sentimentPrompt.pipe(openai).pipe(outputParser);
+  const chain = sentimentPrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
     question: prompt,
@@ -113,22 +109,14 @@ async function getSentimentAnalysis(prompt: string): Promise<string> {
 }
 
 async function getFoxtrotCode(language: string): Promise<string> {
-  /*
-  const codePrompt = ChatPromptTemplate.fromTemplate(
-    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`
-  );
-  */
-  const codePrompt = ChatPromptTemplate.fromTemplate(
-    `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`
-  );
+  const codePrompt = buildCodePrompt();
 
   const outputParser = new StringOutputParser();
 
-  const chain = codePrompt.pipe(openai).pipe(outputParser);
+  const chain = codePrompt.pipe(model()).pipe(outputParser);
 
   const stream = await chain.stream({
-    //question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times.`,
-    question: `Generate code in ${language} that prints "I will not use ChatGPT to code for me" 500 times. Return only the complete and executable code block. Do not include any additional text or explanation.`,
+    programmingLanguage: language,
   });
 
   let response = "";
@@ -139,79 +127,61 @@ async function getFoxtrotCode(language: string): Promise<string> {
 }
 
 export const handler = async (
-  event: APIGatewayProxyEvent
+  event: APIGatewayProxyEvent, context?: Context
 ): Promise<APIGatewayProxyResult> => {
-  // console.log("|-o-| Received event:", event);
+  const remaining = responseBudget(context?.getRemainingTimeInMillis());
+  let headers: Record<string, string> = {"Content-Type": "application/json", "Cache-Control": "no-store"};
   try {
-    const requestBody = JSON.parse(event.body || "{}");
-    const userQuestion = requestBody.question || "Whats up, Doc?";
+    const config = configuration();
+    headers = responseHeaders(event, config.origins);
+    if (routeOf(event) === "session") {
+      const grant = await bootstrapSession(event, config);
+      return {statusCode: 200, headers, body: JSON.stringify(grant)};
+    }
+    const { action, body: requestBody } = await authorize(event, config);
+    if (requestBody.mode === "channel") {
+      const request = parseChannelRequest(requestBody);
+      const text = await channelPrompt(request).pipe(model().bind({response_format: {type: "json_object"}})).pipe(new StringOutputParser()).invoke({request: request.question, catalog: JSON.stringify(request.shows)});
+      let plan;
+      try { plan = parseChannelPlan(text, request); }
+      catch { throw new PublicError(503, "The host sent an invalid lineup. Please try again."); }
+      return {statusCode: 200, headers, body: JSON.stringify({plan})};
+    }
+    if (requestBody.mode === "buddy") {
+      let retrieval: EpisodeRetrieval | undefined;
+      const answer = await safeBuddyReply(requestBody.question || "", async () => {
+        if(requestBody.retrievalQuery){
+          if(remaining(8000)<500)return 'Episode-summary search is temporarily unavailable. Please try again.';
+          retrieval=await retrieveEpisodes(requestBody.retrievalQuery, undefined, Math.min(12000,remaining(8000)));
+          if(retrieval.status!=='ok')return retrieval.notice;
+          if(!retrieval.results.length)return 'I could not find a supported match in the episode summaries searched so far. Try a show name or another plot detail. No episode has been selected.';
+        }
+        if(retrieval && remaining(7000)<500)return 'I found possible episode matches below, but could not finish my commentary in time.';
+        return buddyPrompt(requestBody.personality || "",retrieval ? retrievalContext(retrieval) : undefined).pipe(retrieval ? model().bind({signal: AbortSignal.timeout(Math.max(1,Math.min(6000,remaining(7000)))), options: {timeout: Math.max(1,Math.min(6000,remaining(7000))), maxRetries: 0}}) : model()).pipe(new StringOutputParser()).invoke({question:requestBody.question});
+      }, requestBody.retrievalQuery ? async text => {
+        const budget=Math.min(6000,remaining(500));
+        if(budget<100)throw Error('Response deadline reached');
+        return moderateBuddy(text,budget);
+      } : undefined, () => { retrieval = undefined; });
+      return {statusCode:200,headers,body:JSON.stringify({answer,...(retrieval ? {retrieval} : {})})};
+    }
+    const userQuestion = requestBody.question || "";
     const targetLanguage = requestBody.language || "Spanish";
     const programmingLanguage = requestBody.programmingLanguage || "Python";
-    const personality = requestBody.personality || "skippy"; // Default to Skippy
-
-    let response;
-    // console.log("|-oo-| Received event.path:", event.path);
-
-    switch (event.path) {
-      case "/dev/chatbot":
-      case "/chatbot":
-        response = await getOpenAIResponse(userQuestion, personality);
-        break;
-      case "/dev/translation":
-      case "/translation":
-        response = await getTranslation(userQuestion, targetLanguage);
-        break;
-      case "/dev/personalAssistant":
-      case "/personalAssistant":
-        response = await getPersonalAssistantResponse(userQuestion);
-        break;
-      case "/dev/sentimentAnalysis":
-      case "/sentimentAnalysis":
-        response = await getSentimentAnalysis(userQuestion);
-        break;
-      case "/dev/foxtrot":
-      case "/foxtrot":
-        response = await getFoxtrotCode(programmingLanguage);
-        break;
-      default:
-        response = "Unknown endpoint path.";
+    const personality = requestBody.personality || "skippy";
+    let response: string;
+    switch (action) {
+      case "chatbot": response = await getOpenAIResponse(userQuestion, personality); break;
+      case "translation": response = await getTranslation(userQuestion, targetLanguage); break;
+      case "personalAssistant": response = await getPersonalAssistantResponse(userQuestion); break;
+      case "sentimentAnalysis": response = await getSentimentAnalysis(userQuestion); break;
+      case "foxtrot": response = await getFoxtrotCode(programmingLanguage); break;
     }
-
-    return {
-      statusCode: 200,
-      /*
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-      */
-      headers: {
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "OPTIONS,POST",
-      },
-      body: JSON.stringify({ answer: response }),
-    };
+    return {statusCode: 200, headers, body: JSON.stringify({answer: response.slice(0, 12000)})};
   } catch (error) {
-    if (error instanceof Error) {
-      return {
-        statusCode: 500,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "OPTIONS,POST",
-        },
-        body: JSON.stringify({ error: error.message }),
-      };
-    }
-    return {
-      statusCode: 500,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Allow-Methods": "OPTIONS,POST",
-      },
-      body: JSON.stringify({ error: "An unknown error occurred" }),
-    };
+    const statusCode = error instanceof PublicError ? error.statusCode : 503;
+    const message = error instanceof PublicError ? error.message : "The AI demo is temporarily unavailable. Please try again.";
+    if (statusCode === 429) headers["Retry-After"] = "3600";
+    return {statusCode, headers, body: JSON.stringify({error: message, ...(statusCode === 401 ? {code: "verification_required"} : {})})};
   }
 };

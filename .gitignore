@@ -96,3 +96,7 @@ dist/
 # Backup files
 *.bak
 *.swp
+
+# Python deployment regression bytecode
+__pycache__/
+*.pyc
