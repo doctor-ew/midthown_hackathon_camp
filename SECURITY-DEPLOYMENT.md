@@ -69,7 +69,7 @@ Skippy uses a separate system message for both chat and translation, with concis
 
 ## YATA channel planning
 
-The existing `POST /chatbot` route also accepts a bounded personal-channel request. Send `mode: "channel"`, a `question` of at most 1,000 characters, a finite `host`, and `shows` containing a JSON-encoded array of offered `{id,title,channel}` descriptors. The offered list contains 1–100 entries, uses unique lowercase alphanumeric/hyphen IDs, and is limited to 12,000 characters within the existing 16 KiB request limit. Existing session verification, replay receipts and inference quotas apply unchanged. No catalog or source write operation is exposed.
+The existing `POST /chatbot` route also accepts a bounded personal-channel request. Send `mode: "channel"`, a `question` of at most 1,000 characters, a finite `host`, and `shows` containing a JSON-encoded array of offered `{id,title,channel}` descriptors. The offered list contains 1–512 entries, uses unique lowercase alphanumeric/hyphen IDs, and remains limited to 20,000 characters within a 32 KiB channel request envelope. Other request modes retain their 16 KiB limit. The count ceiling does not override either byte/field limit. Existing session verification, replay receipts and inference quotas apply unchanged. No catalog or source write operation is exposed.
 
 Supported hosts are `stubing`, `arnold`, `jabberjaw`, `benson`, `mrt`, `murdock`, `twiki`, and `starbuck`. Arnold refers to Arnold Jackson; Starbuck refers to the original Battlestar Galactica character. The client selects a host from this finite set.
 
