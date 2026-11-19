@@ -43,9 +43,9 @@ test('request and offered catalog remain data in prompt templates',async()=>{
   assert.ok(messages.some(message=>message.content.includes('raised eyebrow')));
 });
 
-test('expanded catalog supports 256 unique shows and rejects 257',()=>{
- const shows=Array.from({length:256},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'late-night'}));
- assert.equal(parseChannelRequest({...base,shows:JSON.stringify(shows)}).shows.length,256);
+test('expanded catalog supports 512 unique shows and rejects 513',()=>{
+ const shows=Array.from({length:512},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'late-night'}));
+ assert.equal(parseChannelRequest({...base,shows:JSON.stringify(shows)}).shows.length,512);
  shows.push({id:'excess',title:'Excess',channel:'late-night'});
  assert.throws(()=>parseChannelRequest({...base,shows:JSON.stringify(shows)}));
 });
@@ -84,3 +84,5 @@ test('onboard buddy hosts have matching chat identities and distinct delivery wi
  }
  for(const host of ['unknown-buddy','__proto__','constructor'])assert.throws(()=>parseChannelRequest({...base,host}));
 });
+
+test('259 eligible shows pass both route and planner validation without raising byte caps',()=>{const shows=Array.from({length:259},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'scifi'}));const body={...base,shows:JSON.stringify(shows)};assert.equal(parseChannelRequest(parseRequest(event(body)).body).shows.length,259);assert.throws(()=>parseRequest(event({...base,shows:'x'.repeat(20001)})),{statusCode:400});});
