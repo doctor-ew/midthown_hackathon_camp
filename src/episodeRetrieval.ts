@@ -61,3 +61,26 @@ export function responseBudget(invocationRemaining=40000, now:()=>number=Date.no
   const deadline=now()+Math.max(1,Math.min(25000,invocationRemaining-1500));
   return (reserve=0)=>Math.max(0,deadline-now()-reserve);
 }
+
+export const INTENT_KINDS=['conversation','build-channel','episode-search','queue-next','queue-end','launch-game','feedback','companion','clarify'] as const;
+export interface BuddyIntent { version:1; status:'classified'|'clarify'|'unavailable'; intent:typeof INTENT_KINDS[number]; confidence:number; }
+const uncertainIntent=():BuddyIntent=>({version:1,status:'unavailable',intent:'clarify',confidence:0});
+export function validateIntent(value:unknown):BuddyIntent {
+ if(!record(value)||value.version!==1||!['classified','clarify','unavailable'].includes(value.status as string)||!(INTENT_KINDS as readonly unknown[]).includes(value.intent)||typeof value.confidence!=='number'||!Number.isFinite(value.confidence)||value.confidence<0||value.confidence>1||Object.keys(value).some(k=>!['version','status','intent','confidence'].includes(k))||(value.status==='classified'?(value.intent==='clarify'||value.confidence<.85):value.intent!=='clarify'))throw Error('Invalid intent response');
+ return value as unknown as BuddyIntent;
+}
+export async function routeIntent(query:string,invoke?:(query:string)=>Promise<unknown>,timeoutMs=12000):Promise<BuddyIntent>{
+ if(!query.trim()||query.length>1000||Buffer.byteLength(query,'utf8')>4000)return uncertainIntent();
+ try{
+  let value:unknown;
+  if(invoke)value=await invoke(query);
+  else{
+   const name=process.env.EPISODE_RETRIEVAL_FUNCTION;if(!name)return uncertainIntent();
+   client=client||new LambdaClient({region:process.env.AWS_REGION||'us-east-1',maxAttempts:1});
+   const response=await client.send(new InvokeCommand({FunctionName:name,InvocationType:'RequestResponse',Payload:Buffer.from(JSON.stringify({operation:'intent',query}))}),{abortSignal:AbortSignal.timeout(Math.max(1,Math.min(12000,timeoutMs)))});
+   if(response.FunctionError||response.StatusCode!==200||!response.Payload||response.Payload.length>2000)throw Error('Intent unavailable');
+   value=JSON.parse(Buffer.from(response.Payload).toString('utf8'));
+  }
+  const result=validateIntent(value);console.info(JSON.stringify({event:'buddy-intent',status:result.status,intent:result.intent}));return result;
+ }catch{console.info(JSON.stringify({event:'buddy-intent',status:'unavailable',intent:'clarify'}));return uncertainIntent();}
+}

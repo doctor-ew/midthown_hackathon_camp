@@ -1,5 +1,6 @@
+import {routeIntent} from './episodeRetrieval';
 import {EpisodeRetrieval, retrieveEpisodes, retrievalContext, responseBudget} from './episodeRetrieval';
-import { buddyPrompt, safeBuddyReply, moderateBuddy } from './buddySafety';
+import { buddyPrompt, safeBuddyReply, moderateBuddy, injectionAttempt } from './buddySafety';
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
@@ -139,6 +140,12 @@ export const handler = async (
       return {statusCode: 200, headers, body: JSON.stringify(grant)};
     }
     const { action, body: requestBody } = await authorize(event, config);
+    if (requestBody.mode === "intent") {
+      const question=requestBody.question || "";
+      const route=injectionAttempt(question)||!await moderateBuddy(question,Math.max(1,Math.min(6000,remaining(14000))))?{version:1,status:'clarify',intent:'clarify',confidence:0}:await routeIntent(question,undefined,Math.min(12000,remaining(1000)));
+      console.info(JSON.stringify({event:'buddy-route',status:route.status,intent:route.intent}));
+      return {statusCode:200,headers,body:JSON.stringify({route})};
+    }
     if (requestBody.mode === "channel") {
       const request = parseChannelRequest(requestBody);
       const text = await channelPrompt(request).pipe(model().bind({response_format: {type: "json_object"}})).pipe(new StringOutputParser()).invoke({request: request.question, catalog: JSON.stringify(request.shows)});

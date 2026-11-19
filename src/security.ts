@@ -99,13 +99,14 @@ export function parseRequest(event: APIGatewayProxyEvent): { action: Action; bod
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (body.retrievalQuery !== undefined && (body.mode !== "buddy" || !body.retrievalQuery.trim() || Buffer.byteLength(body.retrievalQuery,"utf8") > 1200 || body.retrievalQuery !== body.question)) throw new PublicError(400, "Invalid episode search request.");
   if (body.mode !== undefined || body.host !== undefined || body.shows !== undefined) {
-    if (body.mode === "buddy") {
+    if (body.mode === "buddy" || body.mode === "intent") {
       if (action !== "chatbot" || !require("./buddySafety").isBuddyPersonality(body.personality) || body.host !== undefined || body.shows !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid buddy request.");
     } else {
       if (action !== "chatbot" || body.mode !== "channel" || body.personality !== undefined || body.language !== undefined || body.programmingLanguage !== undefined) throw new PublicError(400, "Invalid channel request.");
       try { require("./channelPlanner").parseChannelRequest(body); } catch { throw new PublicError(400, "Invalid channel request or available-show list."); }
     }
   }
+  if (body.mode === "intent" && (!body.question?.trim() || body.question.length>1000 || Buffer.byteLength(body.question,"utf8")>4000 || body.retrievalQuery!==undefined)) throw new PublicError(400,"Invalid intent request.");
   if (action === "foxtrot") {
     if (!body.programmingLanguage?.trim()) throw new PublicError(400, "Choose a programming language.");
   } else if (!body.question?.trim()) throw new PublicError(400, "Enter a question or text first.");
