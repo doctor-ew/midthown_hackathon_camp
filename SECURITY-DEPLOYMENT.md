@@ -80,3 +80,12 @@ Run `npm run test:security` to build and exercise security and planner contracts
 ## Session-budget release
 
 See [API protection implementation](API-PROTECTION.md) for the session and minute limits, emergency-stop semantics, and outstanding attestation and spending controls. The narrowly scoped release command is `python scripts/deploy-security-guard.py --backup-dir PRIVATE_DIRECTORY --apply`, after building and passing security tests. It requires boto3 and AWS credentials. It builds the guard, fetches and hashes fresh deployed archives, preserves each archive except `dist/src/security.js`, and uses matching optimistic function revisions. It stores immutable rollback archives and configuration in a unique private run directory. Every function must pass a startup/verification-denial canary before rollout proceeds. Failed rollouts reconcile attempted writes and restore verified known preimages when safe; concurrent foreign changes require operator attention. Omit `--apply` to build and prepare backups without updating functions. Existing backup directories must be owned by the current user and private; symlink directories are rejected. Never commit the backup directory; configuration backups contain secrets.
+
+
+## Typed YATA intent routing
+
+The existing chatbot route accepts `mode: intent`, a finite approved companion personality and a raw question of at most1,000 characters /4,000 UTF-8 bytes. Existing session verification, moderation, replay and usage limits apply. The private search Lambda receives only the bounded intent operation. It returns a validated finite route, never entities, URLs or tool arguments. Uncertain/unavailable results clarify instead of guessing actions. Native grants remain in the verified-origin iframe. Intent/status logs omit viewer text and credentials.
+
+The allowed route catalog is conversation, build-channel, episode-search, queue-next, queue-end, launch-game, feedback, companion and clarify. A classified response needs confidence at least0.85; the private service also validates complete normalized probabilities, winning probability and margin. The client retains catalog identity checks, game unlocks, queue mutation and playback. The classifier shares existing cached spending allowances; it does not use embeddings or the episode corpus.
+
+Approved Krystal and original Boss Hogg profiles use the same guarded character policy. Public presentation profiles cannot grant tools. The personality module is server-side TypeScript; presentation data and shared UI remain independently released.
