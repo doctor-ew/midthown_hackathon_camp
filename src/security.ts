@@ -94,7 +94,7 @@ export function routeOf(event: APIGatewayProxyEvent): string {
 export function parseRequest(event: APIGatewayProxyEvent): { action: Action; body: Body } {
   const action = routeOf(event);
   if (!(ACTIONS as readonly string[]).includes(action)) throw new PublicError(404, "Not found.");
-  const body = parseBody(event, {question: 4000, retrievalQuery: 300, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048, mode: 16, host: 16, shows: 20000}, 32768);
+  const body = parseBody(event, {question: 4000, retrievalQuery: 300, language: 80, programmingLanguage: 80, personality: 80, turnstileToken: 2048, sessionToken: 2048, mode: 16, host: 16, shows: 28000}, 32768);
   if (body.mode !== "channel" && Buffer.byteLength(event.body || "", "utf8") > 16384) throw new PublicError(400, "Invalid request.");
   if (!Object.prototype.hasOwnProperty.call(body, "sessionToken") && !body.turnstileToken?.trim()) throw new PublicError(403, "Please complete the verification and try again.");
   if (body.retrievalQuery !== undefined && (body.mode !== "buddy" || !body.retrievalQuery.trim() || Buffer.byteLength(body.retrievalQuery,"utf8") > 1200 || body.retrievalQuery !== body.question)) throw new PublicError(400, "Invalid episode search request.");
