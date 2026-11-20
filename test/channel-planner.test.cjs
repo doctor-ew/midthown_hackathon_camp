@@ -62,7 +62,7 @@ test('large valid catalog offers fit the channel envelope while other request li
  assert.ok(Buffer.byteLength(request.body)>16384);
  assert.equal(parseRequest(request).body.mode,'channel');
  assert.throws(()=>parseRequest({...request,body:request.body+' '.repeat(32769)}),{statusCode:400});
- assert.throws(()=>parseRequest(event({...base,shows:'x'.repeat(20001)})),{statusCode:400});
+ assert.throws(()=>parseRequest(event({...base,shows:'[]'+' '.repeat(27999)})),{statusCode:400});
  const chat=event({question:'Hi',personality:'benson',sessionToken:'placeholder'});
  assert.throws(()=>parseRequest({...chat,body:chat.body+' '.repeat(17000)}),{statusCode:400});
 });
@@ -85,4 +85,15 @@ test('onboard buddy hosts have matching chat identities and distinct delivery wi
  for(const host of ['unknown-buddy','__proto__','constructor'])assert.throws(()=>parseChannelRequest({...base,host}));
 });
 
-test('259 eligible shows pass both route and planner validation without raising byte caps',()=>{const shows=Array.from({length:259},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'scifi'}));const body={...base,shows:JSON.stringify(shows)};assert.equal(parseChannelRequest(parseRequest(event(body)).body).shows.length,259);assert.throws(()=>parseRequest(event({...base,shows:'x'.repeat(20001)})),{statusCode:400});});
+test('259 eligible shows pass both route and planner validation with bounded request fields',()=>{const shows=Array.from({length:259},(_,i)=>({id:'show-'+i,title:'Show '+i,channel:'scifi'}));const body={...base,shows:JSON.stringify(shows)};assert.equal(parseChannelRequest(parseRequest(event(body)).body).shows.length,259);assert.throws(()=>parseRequest(event({...base,shows:'[]'+' '.repeat(27999)})),{statusCode:400});});
+
+test('expanded real YATA catalog fits the guarded channel field while total request and chat caps remain bounded',()=>{
+ const shows=require('./fixtures/yata-offer-2026-11-20.json');
+ assert.equal(shows.length,303);
+ assert.ok(JSON.stringify(shows).length>20000);
+ assert.equal(parseRequest(event({...base,shows:JSON.stringify(shows)})).body.shows,JSON.stringify(shows));
+ assert.throws(()=>parseRequest(event({...base,shows:'[]'+' '.repeat(27999)})),{statusCode:400});
+ const request=event({...base,shows:JSON.stringify(shows)});
+ assert.throws(()=>parseRequest({...request,body:request.body+' '.repeat(32769)}),{statusCode:400});
+ assert.throws(()=>parseRequest(event({mode:'buddy',personality:'benson',sessionToken:'placeholder',question:'x'.repeat(17000)})),{statusCode:400});
+});
